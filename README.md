@@ -46,7 +46,8 @@ Two things surprise new pilots, both deliberate:
 
 ```
 scenes/
-  world.tscn        Test level: ground, scattered obstacles, two helicopters
+  world.tscn        Test level: ground, obstacles, and an empty Players node
+                    that helicopters are spawned into at runtime
   helicopter.tscn   The aircraft — body, model, input, weapons, camera rig
   projectile.tscn   Guided projectile fired by the guns
   explosion.tscn    Impact effect

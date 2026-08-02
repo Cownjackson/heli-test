@@ -3,8 +3,6 @@ extends Control
 ## Throwaway readout for tuning feel: airspeed, altitude, attitude, and where
 ## the virtual cyclic actually is. Delete once the flight model is settled.
 
-@export var heli_path: NodePath
-
 const STICK_BOX := 110.0
 const MARGIN := 16.0
 
@@ -12,7 +10,6 @@ var _heli: Helicopter
 
 
 func _ready() -> void:
-	_heli = get_node_or_null(heli_path) as Helicopter
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
@@ -20,8 +17,17 @@ func _process(_delta: float) -> void:
 	queue_redraw()
 
 
+## Helicopters are spawned, so there is no path to point at and the local one
+## may not exist yet on the first frames. Re-resolve whenever the cached one has
+## gone away or stopped being ours.
+func _resolve_heli() -> Helicopter:
+	if not is_instance_valid(_heli) or not _heli.is_local_authority():
+		_heli = Helicopter.find_local(get_tree())
+	return _heli
+
+
 func _draw() -> void:
-	if not _heli:
+	if _resolve_heli() == null:
 		return
 
 	var font := ThemeDB.fallback_font

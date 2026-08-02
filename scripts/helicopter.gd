@@ -32,6 +32,11 @@ extends RigidBody3D
 ## Emitted on the machine that owns this helicopter when it is written off.
 signal crashed
 
+## Every helicopter joins this group so presentation code (HUD, world input)
+## can find the locally-owned one instead of hard-coding a scene path. Once
+## aircraft are spawned per peer there is no fixed path to point at.
+const GROUP := &"helicopters"
+
 @export_group("Multiplayer")
 ## Peer that owns this helicopter. 1 is the host / the only player offline.
 @export var peer_id: int = 1
@@ -136,6 +141,7 @@ var _flip_reversal_time := 0.0
 
 
 func _ready() -> void:
+	add_to_group(GROUP)
 	_spawn_transform = global_transform
 	_inertia = _compute_inertia()
 	# The flight model applies its own gravity, so the engine must not add any.
@@ -161,9 +167,34 @@ func _ready() -> void:
 
 ## The one gate that decides who is allowed to generate input for this machine.
 func is_local_authority() -> bool:
-	if not multiplayer.has_multiplayer_peer():
+	if not is_networked():
 		return offline_local_control
 	return peer_id == multiplayer.get_unique_id()
+
+
+## True only when a *real* peer is connected.
+##
+## `multiplayer.has_multiplayer_peer()` is not usable for this: Godot 4 installs
+## an `OfflineMultiplayerPeer` by default, so it returns true even with no
+## networking whatsoever, and `get_unique_id()` returns 1. That silently made
+## `offline_local_control` dead code — every helicopter took the peer_id branch
+## and the flag was never read.
+func is_networked() -> bool:
+	var peer := multiplayer.multiplayer_peer
+	return peer != null and not (peer is OfflineMultiplayerPeer)
+
+
+## The helicopter this machine is flying, or null before one is spawned.
+##
+## Presentation code must resolve its target this way rather than through a
+## fixed NodePath, because helicopters are spawned per peer and the local one is
+## not at a predictable place in the tree.
+static func find_local(tree: SceneTree) -> Helicopter:
+	for node in tree.get_nodes_in_group(GROUP):
+		var heli := node as Helicopter
+		if heli != null and heli.is_local_authority():
+			return heli
+	return null
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:

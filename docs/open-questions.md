@@ -28,7 +28,6 @@ of them answering the same question differently.
 | 4 | How does a remote helicopter's weapon resolve an aim point with no camera of its own? Recommendation on the table: carry it in `HeliInput`. **Blocks networked weapons.** | [weapons.md](weapons.md#3-aim-is-camera-dependent-and-this-breaks-the-moment-there-are-two-players) | weapons MP chat |
 | 4a | If aim moves into `HeliInput`, does it travel as the 2D screen cursor or the resolved 3D world point? | [weapons.md](weapons.md#3-aim-is-camera-dependent-and-this-breaks-the-moment-there-are-two-players) | weapons MP chat |
 | 5 | When do we actually swap `RigidBody3D` for the custom integrator? Now has a shape — when the game leaves LAN and needs prediction — but no schedule. | [architecture.md](architecture.md#but-the-first-playable-test-should-still-be-option-a-over-lan) | — |
-| 6 | Fix `offline_local_control`, or delete it and drive everything from `peer_id`? | [architecture.md](architecture.md#3-is_local_authority-is-the-only-authority-gate) | — |
 | 7 | Is `throttle_rate` (0.75/s, ~1.3 s lever travel) responsiveness-to-plan-around, or just sluggish? | [flight-model.md](flight-model.md#arresting-a-descent-catching-a-sink) | flight tuning |
 | 8 | Promote the throwaway measurement harness into a committed regression test? | [flight-model.md](flight-model.md#how-to-re-measure) | — |
 

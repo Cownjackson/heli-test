@@ -140,19 +140,37 @@ lever you park rather than a rate you hold.
 One function decides who may fill `control`. Local input now, the network
 later. Do not add a second path that writes to `control`.
 
-> **Known bug.** `offline_local_control` does not work. Godot 4 installs an
-> `OfflineMultiplayerPeer` by default, so `multiplayer.has_multiplayer_peer()`
-> returns `true` even with no networking, and `is_local_authority()` always
-> takes the `peer_id == get_unique_id()` branch. Offline, `get_unique_id()`
-> returns 1.
->
-> The result is that `offline_local_control` is dead code, and the target
-> helicopter in `world.tscn` behaves correctly only because its `peer_id` is 2.
-> Anything relying on the flag will silently get the wrong answer. Either fix
-> the check to treat `OfflineMultiplayerPeer` as "no peer", or delete the flag
-> and drive everything from `peer_id`.
+**Never test for a network with `multiplayer.has_multiplayer_peer()`.** Godot 4
+installs an `OfflineMultiplayerPeer` by default, so it returns `true` with no
+networking whatsoever, and `get_unique_id()` returns 1. This previously made
+`offline_local_control` dead code — every helicopter took the `peer_id` branch
+and the flag was never read, which went unnoticed because the only two aircraft
+in the scene happened to give the same answer either way.
 
-### 4. Remote helicopters must not simulate locally
+`is_networked()` is the correct test; it excludes `OfflineMultiplayerPeer`
+explicitly. Verified with a helicopter at `peer_id = 5` and
+`offline_local_control = true`: it now reports local authority, where the old
+check answered `false`.
+
+### 4. Nothing may hold a fixed path to a helicopter
+
+Aircraft are spawned per peer into `World/Players`, so there is no node called
+`Helicopter` and no way to know at author time which one belongs to this
+machine. Presentation code resolves its target through
+`Helicopter.find_local(get_tree())`, which scans the `helicopters` group for the
+one holding local authority.
+
+Resolve it *lazily and repeatedly*, not once in `_ready()` — the local aircraft
+may not exist for the first few frames, and will be replaced outright when
+respawning is added. Both `debug_hud.gd` and `world.gd` cache the result and
+re-resolve when it goes stale; copy that pattern rather than storing a
+reference.
+
+Ownership must also be assigned **before** the node enters the tree.
+`Helicopter._ready()` reads `peer_id` to enable its input source and to decide
+which camera becomes `current`, and neither is cleanly reversible afterwards.
+
+### 5. Remote helicopters must not simulate locally
 
 When networking goes in, remote aircraft need `freeze = true` and pure
 interpolation. Writing a transform onto a live `RigidBody3D` every frame means
