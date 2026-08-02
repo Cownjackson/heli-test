@@ -93,6 +93,50 @@ custom integrator unchanged.
 
 ---
 
+## The session layer
+
+`network_session.gd` is autoloaded as `NetworkSession`. It owns the ENet peer
+and answers exactly one question — who is connected — through four signals:
+`session_started(as_server)`, `session_ended`, `peer_joined(id)`,
+`peer_left(id)`.
+
+It deliberately knows nothing about helicopters. `world.gd` listens and does all
+the spawning, which keeps the transport independently testable and means
+gameplay code never touches `multiplayer.multiplayer_peer` directly.
+
+Two details that are easy to get wrong:
+
+- **`session_started` fires when the session is genuinely up**, not when
+  `join()` returns. `create_client()` returning `OK` only means a socket was
+  created; whether anyone is listening is unknown until `connected_to_server` or
+  `connection_failed` arrives. That gap is the `is_connecting` state.
+- **`apply_command_line()` is called by the world, not from `_ready()`.**
+  Autoloads are ready before the main scene, so hosting inside `_ready()` would
+  emit `session_started` before anything was connected to hear it.
+
+### Spawning
+
+`World/HelicopterSpawner` is a `MultiplayerSpawner` pointed at `World/Players`,
+using a custom spawn function rather than a spawnable-scene list. Only the
+server calls `spawn()`; the spawn function itself runs on *every* peer to
+reconstruct the aircraft locally.
+
+That imposes two rules on `_build_helicopter()`. It must not parent the node —
+the spawner does that, and doing it twice reparents. And it must produce an
+identical result from identical payload data on every peer, which is why the
+spawn slot travels in the payload instead of being read from a local child
+count.
+
+Offline there are no peers, so `spawn_helicopter()` parents directly instead.
+The test target only exists in that offline path — a networked session spawns
+real players and nothing else.
+
+Verified with two headless instances over loopback: the client sees both
+aircraft and holds authority over only its own, and the host spawns and
+despawns the client's helicopter on join and disconnect.
+
+---
+
 ## The invariants
 
 These are the things most likely to be broken by a well-intentioned change.

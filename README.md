@@ -31,6 +31,7 @@ godot --headless --path <project-dir> --import
 | Left mouse button | Fire |
 | `R` | Reset / respawn |
 | `Esc` | Release mouse capture |
+| `F1` / `F2` / `F3` | Host / join / leave a LAN session |
 
 Two things surprise new pilots, both deliberate:
 
@@ -41,6 +42,26 @@ Two things surprise new pilots, both deliberate:
 - **The cyclic holds its position.** The mouse drives a virtual stick that stays
   where you left it, like a real cyclic. If the aircraft is drifting, check the
   stick box on the HUD before assuming the physics is wrong.
+
+## Multiplayer (LAN, in progress)
+
+Two peers can connect and see each other's helicopters spawn and despawn.
+**Remote aircraft do not move yet** — input and state replication are the next
+step, so a remote helicopter currently sits at its spawn point.
+
+One machine presses `F1` to host on port 27015. The other sets `join_address` on
+the World node to the host's LAN IP and presses `F2`. `F3` leaves and drops back
+to the offline session. The HUD shows session status and the player count.
+
+From the command line, useful for testing two instances on one machine:
+
+```
+godot --path <project-dir> -- --host
+godot --path <project-dir> -- --join=192.168.1.42
+```
+
+Note the bare `--`: everything after it is passed to the game rather than to the
+engine. `--join` defaults to `127.0.0.1` if no address is given.
 
 ## Repository layout
 
@@ -59,6 +80,7 @@ scripts/
   heli_weapons.gd       Aiming, firing, ammo
   heli_projectile.gd    Projectile flight and collision
   heli_explosion.gd     Effect lifetime
+  network_session.gd    Autoload: owns the ENet peer and session lifecycle
   debug_hud.gd          Tuning readout — throwaway, delete when feel is settled
   world.gd              Test level setup
 docs/

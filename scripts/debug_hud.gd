@@ -46,10 +46,14 @@ func _draw() -> void:
 		"tilt     %5.1f deg" % tilt,
 		"throttle %4.0f %%   (hover %.0f %%)" % [_heli.control.throttle * 100.0, _heli.hover_throttle() * 100.0],
 		"",
+		"session  %s" % NetworkSession.status_text,
+		"players  %d" % get_tree().get_nodes_in_group(Helicopter.GROUP).size(),
+		"",
 		"W/S collective   A/D pedals",
 		"mouse or arrows  cyclic",
 		"LMB twin guns",
 		"R reset   Esc release mouse",
+		"F1 host   F2 join   F3 leave",
 	]
 	var y := MARGIN + font_size
 	for line: String in lines:

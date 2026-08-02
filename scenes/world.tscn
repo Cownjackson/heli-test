@@ -96,6 +96,9 @@ material_override = SubResource("Mat_pad")
 
 [node name="Players" type="Node3D" parent="."]
 
+[node name="HelicopterSpawner" type="MultiplayerSpawner" parent="."]
+spawn_path = NodePath("../Players")
+
 [node name="HUD" type="CanvasLayer" parent="."]
 
 [node name="DebugHUD" type="Control" parent="HUD"]

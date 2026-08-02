@@ -28,40 +28,120 @@ const SPAWN_RING := 35.0
 ## development aid for weapons work; it is not a player and never accepts input.
 @export var spawn_test_target: bool = true
 
+@export_group("Session")
+## Address F2 connects to. Set this to the host's LAN IP to test across two
+## machines; the default only reaches another instance on this one.
+@export var join_address: String = "127.0.0.1"
+
 @onready var _players: Node3D = $Players
+@onready var _spawner: MultiplayerSpawner = $HelicopterSpawner
 
 ## Cached only as an optimisation. Always go through _local_heli(), which
 ## re-resolves if the aircraft was despawned or ownership changed.
 var _heli: Helicopter
+## Server-side only. Spawn slots are handed out in join order and travel in the
+## spawn payload, so every peer places every aircraft identically.
+var _next_spawn_index := 0
 
 
 func _ready() -> void:
 	_build_obstacles()
-	spawn_helicopter(OFFLINE_PEER)
-	if spawn_test_target:
-		spawn_helicopter(OFFLINE_PEER + 1)
+	# The spawner runs this on *every* peer to reconstruct the aircraft locally;
+	# only the server ever calls spawn().
+	_spawner.spawn_function = _build_helicopter
+
+	NetworkSession.session_started.connect(_on_session_started)
+	NetworkSession.session_ended.connect(_on_session_ended)
+	NetworkSession.peer_joined.connect(_on_peer_joined)
+	NetworkSession.peer_left.connect(_on_peer_left)
+
+	NetworkSession.apply_command_line()
+	if not NetworkSession.is_active():
+		_populate_offline()
 	_capture_mouse()
 
 
-## Creates one aircraft and hands it to `for_peer`.
+## Builds one aircraft, without parenting it.
 ##
-## Ownership is decided before the node enters the tree on purpose: the
-## helicopter's `_ready()` reads it to enable its input source and to pick which
-## camera becomes current, and neither can be un-done cleanly afterwards.
-func spawn_helicopter(for_peer: int) -> Helicopter:
-	if helicopter_scene == null:
-		push_error("world.gd: helicopter_scene is not set, cannot spawn players.")
-		return null
-
+## This is the `MultiplayerSpawner` spawn function, so it must be a pure
+## construction step: the spawner does the adding, and doing it here too would
+## reparent the node. It also must produce an identical result from identical
+## data on every peer, which is why placement comes from the payload rather than
+## from local child counts.
+##
+## Ownership is assigned here, before the node enters the tree, because
+## `Helicopter._ready()` reads `peer_id` to enable its input source and pick
+## which camera becomes current — neither is cleanly reversible afterwards.
+func _build_helicopter(data: Dictionary) -> Helicopter:
+	var for_peer := int(data.get("peer", OFFLINE_PEER))
 	var heli := helicopter_scene.instantiate() as Helicopter
 	heli.name = "Helicopter%d" % for_peer
 	heli.peer_id = for_peer
 	# Offline there is no get_unique_id() to compare against, so mirror the same
 	# rule by hand rather than letting the flag default every aircraft to local.
 	heli.offline_local_control = for_peer == OFFLINE_PEER
-	heli.transform = spawn_transform_for(_players.get_child_count())
-	_players.add_child(heli)
+	heli.transform = spawn_transform_for(int(data.get("index", 0)))
 	return heli
+
+
+## Server-side spawn. Offline this parents directly, because the spawner has no
+## peers to replicate to and refuses to run without one.
+func spawn_helicopter(for_peer: int) -> void:
+	if helicopter_scene == null:
+		push_error("world.gd: helicopter_scene is not set, cannot spawn players.")
+		return
+	var data := {"peer": for_peer, "index": _next_spawn_index}
+	_next_spawn_index += 1
+	if NetworkSession.is_active():
+		_spawner.spawn(data)
+	else:
+		_players.add_child(_build_helicopter(data))
+
+
+func despawn_helicopter(for_peer: int) -> void:
+	var heli := _players.get_node_or_null("Helicopter%d" % for_peer)
+	if heli:
+		# Freeing on the server is what tells the spawner to remove the replica.
+		heli.queue_free()
+
+
+func _populate_offline() -> void:
+	_next_spawn_index = 0
+	spawn_helicopter(OFFLINE_PEER)
+	if spawn_test_target:
+		spawn_helicopter(OFFLINE_PEER + 1)
+
+
+func _clear_players() -> void:
+	for child in _players.get_children():
+		_players.remove_child(child)
+		child.queue_free()
+	_heli = null
+	_next_spawn_index = 0
+
+
+func _on_session_started(as_server: bool) -> void:
+	# Whatever was flying belonged to the previous (offline) session.
+	_clear_players()
+	if as_server:
+		spawn_helicopter(multiplayer.get_unique_id())
+	# A client spawns nothing: every aircraft, including its own, arrives from
+	# the server through the spawner.
+
+
+func _on_session_ended() -> void:
+	_clear_players()
+	_populate_offline()
+
+
+func _on_peer_joined(id: int) -> void:
+	if NetworkSession.is_server:
+		spawn_helicopter(id)
+
+
+func _on_peer_left(id: int) -> void:
+	if NetworkSession.is_server:
+		despawn_helicopter(id)
 
 
 ## Deterministic spawn placement: index 0 gets the pad, everyone else is spread
@@ -83,6 +163,25 @@ func _local_heli() -> Helicopter:
 	if not is_instance_valid(_heli) or not _heli.is_local_authority():
 		_heli = Helicopter.find_local(get_tree())
 	return _heli
+
+
+## Session controls are raw keycodes rather than input-map actions purely to
+## avoid churn in project.godot while the weapons branch is open. They are a
+## development shortcut and belong in a real menu eventually.
+func _unhandled_key_input(event: InputEvent) -> void:
+	var key := event as InputEventKey
+	if key == null or not key.pressed or key.echo:
+		return
+	match key.keycode:
+		KEY_F1:
+			NetworkSession.host()
+		KEY_F2:
+			NetworkSession.join(join_address)
+		KEY_F3:
+			NetworkSession.leave()
+		_:
+			return
+	get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
