@@ -106,7 +106,12 @@ func _steer_toward_cursor(delta: float) -> void:
 
 
 func _refresh_guidance_target() -> void:
+	# is_instance_valid() alone is not enough now that helicopters despawn: a
+	# launcher detached this frame is still "valid" but has no viewport, and
+	# current_aim_point() would dereference it. Keeps the existing behaviour of
+	# flying on toward the last known target.
 	if is_instance_valid(_guidance_source) \
+			and _guidance_source.is_inside_tree() \
 			and _guidance_source.has_method(&"current_aim_point"):
 		_target_position = _guidance_source.current_aim_point()
 

@@ -180,8 +180,23 @@ func is_local_authority() -> bool:
 ## `offline_local_control` dead code — every helicopter took the peer_id branch
 ## and the flag was never read.
 func is_networked() -> bool:
+	# `Node.multiplayer` resolves through the scene tree and is null once the
+	# node has been detached, so a despawning helicopter would crash here rather
+	# than answer. Detached aircraft belong to no session.
+	if not is_inside_tree():
+		return false
 	var peer := multiplayer.multiplayer_peer
 	return peer != null and not (peer is OfflineMultiplayerPeer)
+
+
+## False once this aircraft is on its way out.
+##
+## `is_instance_valid()` is not enough on its own: `queue_free()` defers the
+## actual free to the end of the frame, so a despawned helicopter stays "valid",
+## stays in its group, and — if it was also reparented out — has no `multiplayer`
+## to answer questions with. Anything caching a `Helicopter` must check this.
+func is_live() -> bool:
+	return is_inside_tree() and not is_queued_for_deletion()
 
 
 ## The helicopter this machine is flying, or null before one is spawned.
@@ -192,7 +207,8 @@ func is_networked() -> bool:
 static func find_local(tree: SceneTree) -> Helicopter:
 	for node in tree.get_nodes_in_group(GROUP):
 		var heli := node as Helicopter
-		if heli != null and heli.is_local_authority():
+		# Group membership outlives despawning by a frame, so skip the corpses.
+		if heli != null and heli.is_live() and heli.is_local_authority():
 			return heli
 	return null
 

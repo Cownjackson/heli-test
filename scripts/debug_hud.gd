@@ -21,7 +21,7 @@ func _process(_delta: float) -> void:
 ## may not exist yet on the first frames. Re-resolve whenever the cached one has
 ## gone away or stopped being ours.
 func _resolve_heli() -> Helicopter:
-	if not is_instance_valid(_heli) or not _heli.is_local_authority():
+	if not is_instance_valid(_heli) or not _heli.is_live() or not _heli.is_local_authority():
 		_heli = Helicopter.find_local(get_tree())
 	return _heli
 
