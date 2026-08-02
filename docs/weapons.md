@@ -65,6 +65,11 @@ shooter's own collider is excluded at launch.
 
 ## Open design questions
 
+These are indexed in [open-questions.md](open-questions.md), which is where
+ownership is tracked. The reasoning stays here; when one of them is settled, the
+decision moves to [architecture.md](architecture.md) and its row in the registry
+is removed.
+
 ### 1. There is no damage model at all
 
 This is the largest gap. A projectile hit calls

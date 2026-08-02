@@ -69,8 +69,12 @@ docs/
 ## Documentation
 
 - **[Architecture](docs/architecture.md)** — why the code is shaped the way it
-  is, what must not be broken, and what is deliberately unfinished.
+  is, and what must not be broken. Start here.
 - **[Flight model](docs/flight-model.md)** — the helicopter rules we model, the
   measured flight envelope, and a symptom-to-knob tuning guide.
-- **[Weapons](docs/weapons.md)** — the current implementation and the open
-  design questions.
+- **[Weapons](docs/weapons.md)** — the current implementation and its design
+  questions.
+- **[Open questions](docs/open-questions.md)** — the single registry of
+  undecided forks. Check it before deciding one.
+- **[Contributing](CONTRIBUTING.md)** — code and documentation conventions, and
+  what to check before committing.

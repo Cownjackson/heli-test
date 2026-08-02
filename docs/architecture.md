@@ -172,10 +172,7 @@ determinism for the scenery.
 
 ## What is deliberately not done
 
-| Item | Notes |
-|---|---|
-| Networking | Structure is in place; no `MultiplayerPeer`, no spawner, no state sync |
-| First-person / cockpit camera | Deferred until the third-person camera feels right |
-| Damage model | Projectiles apply a physics impulse but nothing tracks health — see [weapons.md](weapons.md) |
-| Custom integrator | The flight model is ready for it; the swap itself has not been made |
-| Automated flight regression tests | Numbers in [flight-model.md](flight-model.md) are measured by hand and stamped with a commit |
+Tracked in [open-questions.md](open-questions.md), which distinguishes forks
+that are genuinely undecided from work that is deferred on purpose. Networking,
+the custom-integrator swap, the damage model and the cockpit camera all live
+there rather than being listed twice.
