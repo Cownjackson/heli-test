@@ -1,8 +1,10 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=20 format=3]
 
 [ext_resource type="Script" path="res://scripts/helicopter.gd" id="1_heli"]
 [ext_resource type="Script" path="res://scripts/local_input_source.gd" id="2_input"]
 [ext_resource type="Script" path="res://scripts/chase_camera.gd" id="3_cam"]
+[ext_resource type="Script" path="res://scripts/heli_weapons.gd" id="4_weapons"]
+[ext_resource type="PackedScene" path="res://scenes/projectile.tscn" id="5_projectile"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_col"]
 size = Vector3(2, 2.9, 6.6)
@@ -48,6 +50,14 @@ size = Vector3(0.1, 0.1, 3.2)
 
 [sub_resource type="BoxMesh" id="Mesh_strut"]
 size = Vector3(0.08, 0.9, 0.08)
+
+[sub_resource type="BoxMesh" id="Mesh_gun_mount"]
+size = Vector3(0.42, 0.42, 0.7)
+
+[sub_resource type="CylinderMesh" id="Mesh_gun_barrel"]
+top_radius = 0.11
+bottom_radius = 0.11
+height = 1.4
 
 [node name="Helicopter" type="RigidBody3D"]
 mass = 900.0
@@ -141,6 +151,42 @@ material_override = SubResource("Mat_dark")
 
 [node name="InputSource" type="Node" parent="."]
 script = ExtResource("2_input")
+
+[node name="Weapons" type="Node3D" parent="."]
+script = ExtResource("4_weapons")
+projectile_scene = ExtResource("5_projectile")
+
+[node name="GunLeft" type="Node3D" parent="Weapons"]
+position = Vector3(-1.05, -0.1, -1.4)
+
+[node name="Mount" type="MeshInstance3D" parent="Weapons/GunLeft"]
+mesh = SubResource("Mesh_gun_mount")
+material_override = SubResource("Mat_dark")
+
+[node name="Barrel" type="MeshInstance3D" parent="Weapons/GunLeft"]
+position = Vector3(0, 0, -0.55)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Mesh_gun_barrel")
+material_override = SubResource("Mat_dark")
+
+[node name="Muzzle" type="Marker3D" parent="Weapons/GunLeft"]
+position = Vector3(0, 0, -1.28)
+
+[node name="GunRight" type="Node3D" parent="Weapons"]
+position = Vector3(1.05, -0.1, -1.4)
+
+[node name="Mount" type="MeshInstance3D" parent="Weapons/GunRight"]
+mesh = SubResource("Mesh_gun_mount")
+material_override = SubResource("Mat_dark")
+
+[node name="Barrel" type="MeshInstance3D" parent="Weapons/GunRight"]
+position = Vector3(0, 0, -0.55)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Mesh_gun_barrel")
+material_override = SubResource("Mat_dark")
+
+[node name="Muzzle" type="Marker3D" parent="Weapons/GunRight"]
+position = Vector3(0, 0, -1.28)
 
 [node name="CameraRig" type="Node3D" parent="."]
 script = ExtResource("3_cam")

@@ -42,6 +42,7 @@ func _draw() -> void:
 		"",
 		"W/S collective   A/D pedals",
 		"mouse or arrows  cyclic",
+		"LMB twin guns",
 		"R reset   Esc release mouse",
 	]
 	var y := MARGIN + font_size
@@ -57,6 +58,45 @@ func _draw() -> void:
 	var stick_center := Vector2(MARGIN + STICK_BOX * 0.5, y + STICK_BOX * 0.5 + 8.0)
 	_draw_stick(stick_center)
 	_draw_lever(Vector2(stick_center.x + STICK_BOX * 0.5 + 26.0, stick_center.y))
+	_draw_weapon_status(font)
+	_draw_crosshair()
+
+
+## Ammo lives apart from the tuning readout so it remains readable at a glance
+## during flight. One ammo unit represents one paired-gun volley.
+func _draw_weapon_status(font: Font) -> void:
+	if not _heli.weapons:
+		return
+	var weapons = _heli.weapons
+	var panel_size := Vector2(230.0, 82.0)
+	var panel_position := size - panel_size - Vector2(MARGIN, MARGIN)
+	draw_rect(Rect2(panel_position, panel_size), Color(0.02, 0.035, 0.03, 0.72), true)
+	draw_rect(Rect2(panel_position, panel_size), Color(0.55, 0.75, 0.58, 0.55), false, 1.0)
+
+	var ammo_text := "AMMO  %d / %d" % [weapons.ammo, weapons.max_ammo]
+	draw_string(font, panel_position + Vector2(12.0, 31.0), ammo_text,
+		HORIZONTAL_ALIGNMENT_LEFT, panel_size.x - 24.0, 24, Color(0.95, 0.86, 0.3))
+
+	var status := "READY"
+	if weapons.cooldown_remaining > 0.0:
+		status = "FIRE IN  %.1f s" % weapons.cooldown_remaining
+	elif weapons.ammo <= 0:
+		status = "RELOADING"
+	if weapons.ammo < weapons.max_ammo:
+		var next_round := maxf(0.0, weapons.reload_seconds_per_round - weapons.reload_progress)
+		status += "     +1 IN %.1f s" % next_round
+	draw_string(font, panel_position + Vector2(12.0, 60.0), status,
+		HORIZONTAL_ALIGNMENT_LEFT, panel_size.x - 24.0, 14, Color(0.72, 0.9, 0.76))
+
+
+func _draw_crosshair() -> void:
+	var center: Vector2 = _heli.weapons.aim_position
+	var color := Color(0.95, 0.86, 0.3, 0.8)
+	draw_arc(center, 8.0, 0.0, TAU, 24, color, 1.5)
+	draw_line(center + Vector2(-15.0, 0.0), center + Vector2(-6.0, 0.0), color, 1.5)
+	draw_line(center + Vector2(6.0, 0.0), center + Vector2(15.0, 0.0), color, 1.5)
+	draw_line(center + Vector2(0.0, -15.0), center + Vector2(0.0, -6.0), color, 1.5)
+	draw_line(center + Vector2(0.0, 6.0), center + Vector2(0.0, 15.0), color, 1.5)
 
 
 ## Collective lever with a tick at the hover setting. With an absolute lever

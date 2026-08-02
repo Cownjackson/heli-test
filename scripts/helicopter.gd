@@ -35,6 +35,10 @@ signal crashed
 @export_group("Multiplayer")
 ## Peer that owns this helicopter. 1 is the host / the only player offline.
 @export var peer_id: int = 1
+## Lets the test world contain real remote-style helicopter instances before a
+## MultiplayerPeer exists. Ignored once multiplayer is active, when peer_id is
+## the sole authority source.
+@export var offline_local_control: bool = true
 
 @export_group("Physics")
 ## Ours, not the engine's — gravity_scale is zeroed and we apply this instead,
@@ -111,8 +115,10 @@ signal crashed
 @export var tail_rotor_rpm: float = 1100.0
 
 @onready var input_source: LocalInputSource = $InputSource
+@onready var weapons = $Weapons
 @onready var _main_rotor: Node3D = $Model/MainRotor
 @onready var _tail_rotor: Node3D = $Model/TailRotor
+@onready var _camera: Camera3D = $CameraRig/SpringArm3D/Camera3D
 
 ## Current pilot intent. Overwritten each tick by whoever has authority.
 var control := HeliInput.new()
@@ -145,7 +151,9 @@ func _ready() -> void:
 	# Needed for get_contact_count() / get_contact_impulse() to report anything.
 	contact_monitor = true
 	max_contacts_reported = 4
-	input_source.enabled = is_local_authority()
+	var locally_owned := is_local_authority()
+	input_source.enabled = locally_owned
+	_camera.current = locally_owned
 	# Start on the lever where we'd hover, so spawning isn't an instant fall.
 	input_source.set_throttle(hover_throttle())
 	control.throttle = hover_throttle()
@@ -154,7 +162,7 @@ func _ready() -> void:
 ## The one gate that decides who is allowed to generate input for this machine.
 func is_local_authority() -> bool:
 	if not multiplayer.has_multiplayer_peer():
-		return true
+		return offline_local_control
 	return peer_id == multiplayer.get_unique_id()
 
 
@@ -420,6 +428,7 @@ func reset() -> void:
 	_flip_reversal_time = 0.0
 	_rotor_spin = 1.0
 	input_source.center_stick()
+	weapons.center_aim()
 	input_source.set_throttle(hover_throttle())
 	control.clear()
 	control.throttle = hover_throttle()

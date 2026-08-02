@@ -5,8 +5,9 @@ extends Node3D
 ##
 ## Multiplayer note: everything spawned here is static scenery, generated from
 ## a fixed seed so every peer builds an identical world without syncing it.
-## Players get spawned by a MultiplayerSpawner later; the local helicopter is
-## just placed in the scene for now.
+## Players get spawned by a MultiplayerSpawner later. For now two instances of
+## the same helicopter scene stand in for peers 1 and 2: only peer 1 accepts
+## offline input, while peer 2 remains a fully physical weapons target.
 
 @export var obstacle_count: int = 90
 @export var field_radius: float = 420.0
@@ -38,6 +39,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _capture_mouse() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_heli.input_source.center_stick()
+	_heli.weapons.center_aim()
 
 
 func _build_obstacles() -> void:

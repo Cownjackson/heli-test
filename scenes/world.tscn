@@ -96,6 +96,12 @@ material_override = SubResource("Mat_pad")
 [node name="Helicopter" parent="." instance=ExtResource("2_heli")]
 position = Vector3(0, 25, 0)
 
+[node name="TargetHelicopter" parent="." instance=ExtResource("2_heli")]
+position = Vector3(0, 25, -35)
+rotation = Vector3(0, 3.1415927, 0)
+peer_id = 2
+offline_local_control = false
+
 [node name="HUD" type="CanvasLayer" parent="."]
 
 [node name="DebugHUD" type="Control" parent="HUD"]
