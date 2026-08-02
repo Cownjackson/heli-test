@@ -106,25 +106,112 @@ be, because a projectile's whole trajectory depends on continuous input from its
 owner for up to 15 seconds after launch. **This should be decided before
 networking work starts, not during it.**
 
-### 3. Aim is camera-dependent
+Two things narrow the choice. First, if guidance travels through `HeliInput` as
+proposed in question 3, the "client's guidance input has to be streamed too"
+objection to server-authoritative hits mostly dissolves — the server is already
+receiving that stream in order to fly the aircraft, and a guided projectile
+becomes an ordinary server-simulated object driven by an input the server holds.
+
+Second, the first networked build is planned as LAN-only and
+server-authoritative — see
+[architecture.md](architecture.md#but-the-first-playable-test-should-still-be-option-a-over-lan).
+At LAN latency, server-authoritative hits need no lag compensation at all to
+feel correct, which makes the third option something to defer rather than
+design for now. The trap is treating that as licence to resolve hits on the
+firing client because it looks identical at 0 ms; it will not look identical
+later, and authority is the expensive thing to move.
+
+### 3. Aim is camera-dependent, and this breaks the moment there are two players
 
 `current_aim_point()` calls `get_viewport().get_camera_3d()` — the *active*
-camera. This is fine with one local player and will need revisiting for
-split-screen, spectating, or any remote helicopter whose weapons need to
-resolve an aim point without a camera of its own.
+camera, meaning the local player's. That is a single global, but it is being
+used to answer a per-helicopter question.
+
+Nothing misbehaves today, for two reasons that both disappear under networking:
+`helicopter.gd` sets `_camera.current` only on the locally-owned aircraft, and
+`HeliWeapons._unhandled_input()` gates firing on `is_local_authority()`. So the
+target helicopter never fires and there is only ever one active camera.
+
+Once a second real player exists, a remote helicopter's projectiles must still
+be steered on this machine — and `current_aim_point()` will hand them **the
+local player's crosshair**. Every remote missile in the world would fly at
+whatever you personally are looking at. This is not a rendering nicety; it is a
+trajectory error, and it needs fixing before networking rather than after.
+
+**Recommended shape of the fix: the aim point is pilot input.**
+
+`HeliInput` already exists to carry pilot intent from whoever owns an aircraft,
+already travels as absolute positions, and is already sized to send every
+physics tick. The aim cursor is exactly that kind of value. Extending it means:
+
+- `current_aim_point()` reads from `control` rather than from the viewport, so
+  it resolves identically for local and remote aircraft, with or without a
+  camera
+- no separate channel, no separate reliability story, no extra RPC
+- guidance updates arrive at the same rate and in the same order as the flight
+  inputs they are correlated with
+
+The open sub-question is *what* to put in `HeliInput`: the 2D screen cursor
+(compact, but only meaningful alongside the sender's camera, which the receiver
+does not have) or the resolved 3D world point (larger, self-contained, and what
+the projectile actually wants). The world point is the stronger default —
+resolve on the owner, transmit the answer. See registry row 4.
 
 Note also that `HeliProjectile._refresh_guidance_target()` holds a reference to
 its `_guidance_source` and re-queries it every frame, so a projectile's
 behaviour is coupled to its launcher's lifetime. It uses `is_instance_valid()`,
 so a destroyed launcher leaves the projectile flying at its last known target
 rather than crashing — but that is the current behaviour by accident rather than
-by design.
+by design. Routing guidance through `HeliInput` removes this coupling as a side
+effect, since the projectile would read a value rather than call an object.
 
 ### 4. Projectiles parent themselves to the current scene
 
 `try_fire()` adds projectiles to `get_tree().current_scene`, falling back to the
 root. Once there is a `MultiplayerSpawner`, spawned objects will need a
 designated parent node instead.
+
+---
+
+## Working on weapons ahead of networking
+
+Networking is not in yet, and weapons work should not wait for it. But a few
+habits now decide whether the weapon system needs a rewrite later or just a
+wiring pass. In rough order of how expensive they are to retrofit:
+
+**Keep firing decisions in one function.** `try_fire()` is currently the single
+place that checks ammo and cooldown and creates projectiles. That is exactly
+right, and it is what lets the whole thing become server-authoritative by
+changing one call site. Adding a second path that spawns a projectile — a
+special weapon, a burst mode, a test button — is the change that would hurt.
+
+**Do not read the viewport, the camera, or `Input` from anything a remote
+aircraft also runs.** This is the same rule that keeps `compute_flight()` pure,
+applied to weapons. Anything a remote helicopter's weapon needs must arrive as
+data, not be looked up from local globals. See question 3 above.
+
+**Assume projectiles will be spawned by something else.** `try_fire()` adds
+children to `get_tree().current_scene`. Under a `MultiplayerSpawner` the parent
+becomes a designated node and spawning becomes a server-side call. Keeping the
+parent lookup in one place — rather than sprinkling `add_child` around — makes
+that a one-line change.
+
+**Distinguish cosmetic from authoritative.** Muzzle flash, trails, sparks,
+explosions and sound are cosmetic: they can and should fire immediately on the
+shooting client, and they never need to agree between machines. Position, hits,
+damage and ammo are authoritative. Effects that are wired into the same object
+as the collision logic are the hard part of retrofitting lag compensation, so
+`heli_explosion.gd` staying a pure effect with no gameplay side effects is worth
+preserving.
+
+**Ammo and cooldown will move.** `ammo`, `cooldown_remaining` and
+`reload_progress` currently advance in `_process()` on every peer independently.
+They will eventually be owned by the server and replicated. Nothing needs to
+change now, but avoid building anything that assumes they are locally writable.
+
+None of this asks for networking code. It asks for the weapon to stay a function
+of its own state plus explicit input — which is the same property that made the
+flight model straightforward to plan around.
 
 ---
 

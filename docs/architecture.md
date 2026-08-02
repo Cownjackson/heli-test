@@ -33,6 +33,35 @@ network round trip completes; 80–120 ms of that is tolerable on a character
 controller and genuinely unpleasant on a helicopter. Option B allows local
 prediction and reconciliation.
 
+### But the first playable test should still be option A, over LAN
+
+B remains the destination. It is not where the *first* networked build should
+start, because the argument above is entirely an argument about latency.
+
+The two contributors are on the same network, so the realistic first test is
+LAN: sub-millisecond round trip, no NAT traversal, no relay. At that latency the
+input delay under option A is smaller than one physics tick and below what is
+perceptible even on a vehicle flown by continuous correction. The objection that
+rules out option A over the internet simply does not apply on a switch.
+
+That has a large consequence. It means the first networked build needs **no
+prediction, no reconciliation, and no custom integrator** — server-authoritative
+`RigidBody3D`, clients sending `HeliInput`, remote aircraft frozen and
+interpolated. All of which the code already supports. It also means Jolt's
+determinism stays irrelevant, because only one machine is simulating.
+
+So the staging is: get two helicopters flying on one network under option A,
+which is achievable now and validates the authority gate, the wire format and
+the spawning story against a real peer. Option B becomes necessary at the point
+the game leaves the LAN, and is much easier to write against a flight model and
+a weapon system that have both stopped moving. Prediction is the thing that
+forces the rewrite; deferring prediction defers the rewrite.
+
+The risk to watch is building option A in a way that assumes low latency
+*forever* — for instance resolving hits on the firing client because it happens
+to look fine at 0 ms. Low latency is a reason to postpone prediction, not a
+reason to put authority in the wrong place.
+
 ### Why this is not a Jolt question
 
 It is worth being precise, because "should we switch physics engines?" comes up
