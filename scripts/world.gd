@@ -52,6 +52,7 @@ func _ready() -> void:
 
 	NetworkSession.session_started.connect(_on_session_started)
 	NetworkSession.session_ended.connect(_on_session_ended)
+	NetworkSession.session_failed.connect(_on_session_failed)
 	NetworkSession.peer_joined.connect(_on_peer_joined)
 	NetworkSession.peer_left.connect(_on_peer_left)
 
@@ -74,6 +75,14 @@ func _ready() -> void:
 ## which camera becomes current — neither is cleanly reversible afterwards.
 func _build_helicopter(data: Dictionary) -> Helicopter:
 	var for_peer := int(data.get("peer", OFFLINE_PEER))
+	# Guarded here as well as in spawn_helicopter(): on a client this runs from
+	# the spawner, where nobody has checked anything, and a null scene would
+	# otherwise fail as a bare crash inside engine code.
+	if helicopter_scene == null:
+		push_error("world.gd: helicopter_scene is not set, cannot build peer %d." % for_peer)
+		return null
+	print("world: building helicopter for peer %d (index %d)" % [
+		for_peer, int(data.get("index", 0))])
 	var heli := helicopter_scene.instantiate() as Helicopter
 	heli.name = "Helicopter%d" % for_peer
 	heli.peer_id = for_peer
@@ -132,6 +141,13 @@ func _on_session_started(as_server: bool) -> void:
 func _on_session_ended() -> void:
 	_clear_players()
 	_populate_offline()
+
+
+## A failed connection must not leave the player stranded with no aircraft. The
+## offline session is the fallback, and it is always safe to return to.
+func _on_session_failed(_reason: String) -> void:
+	if get_tree().get_nodes_in_group(Helicopter.GROUP).is_empty():
+		_populate_offline()
 
 
 func _on_peer_joined(id: int) -> void:

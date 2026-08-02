@@ -27,10 +27,13 @@ func _resolve_heli() -> Helicopter:
 
 
 func _draw() -> void:
+	var font := ThemeDB.fallback_font
 	if _resolve_heli() == null:
+		# Never go blank. A HUD that vanishes tells the player nothing; if there
+		# is no aircraft to fly, the session state is exactly what they need.
+		_draw_no_aircraft(font)
 		return
 
-	var font := ThemeDB.fallback_font
 	var font_size := 15
 	var color := Color(0.85, 0.95, 0.85)
 	var velocity := _heli.linear_velocity
@@ -70,6 +73,35 @@ func _draw() -> void:
 	_draw_lever(Vector2(stick_center.x + STICK_BOX * 0.5 + 26.0, stick_center.y))
 	_draw_weapon_status(font)
 	_draw_crosshair()
+
+
+## Shown whenever this machine has no aircraft it is allowed to fly. That is
+## normal for a moment after joining, and a fault if it persists — so say which.
+func _draw_no_aircraft(font: Font) -> void:
+	var total := get_tree().get_nodes_in_group(Helicopter.GROUP).size()
+	var lines := [
+		"NO AIRCRAFT",
+		"",
+		"session  %s" % NetworkSession.status_text,
+		"peer id  %s" % (str(multiplayer.get_unique_id()) if NetworkSession.is_active() else "-"),
+		"helicopters in world  %d" % total,
+	]
+	if NetworkSession.is_active() and not NetworkSession.is_server:
+		lines.append("")
+		if total == 0:
+			lines.append("Connected, but the host has sent no aircraft.")
+			lines.append("Check both machines run the same commit and")
+			lines.append("the same Godot version.")
+		else:
+			lines.append("Aircraft present but none owned by this peer.")
+	lines.append("")
+	lines.append("F3 leave and return to single player")
+
+	var y := 120.0
+	for line: String in lines:
+		draw_string(font, Vector2(MARGIN + 8.0, y), line,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.95, 0.6, 0.4))
+		y += 24.0
 
 
 ## Ammo lives apart from the tuning readout so it remains readable at a glance
