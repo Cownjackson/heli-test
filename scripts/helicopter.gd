@@ -16,8 +16,8 @@ extends RigidBody3D
 ## 3. Translational lift: above roughly 12 m/s the disc bites cleaner air and
 ##    makes more lift for the same collective, so you balloon slightly as you
 ##    accelerate out of a hover.
-## 4. Main rotor torque has to go somewhere. Pulling collective swings the nose,
-##    which is what the pedals are for.
+## 4. Main rotor torque coupling is available as a tuning option, but defaults
+##    off so neutral pedals hold heading instead of producing input-free drift.
 ##
 ## What we deliberately do *not* model: retreating blade stall, vortex ring
 ## state, autorotation, ground effect, translational lift falling off again at
@@ -71,26 +71,34 @@ signal crashed
 @export var vertical_drag: float = 0.49
 
 @export_group("Attitude")
-## Full-stick tilt limits. Deliberately past vertical in roll: at full
-## deflection you commit to going over, the rotor ends up pointing at the
-## ground and you fall out of the sky. Recovering before that is the skill.
-## The two combine as an ellipse, so a diagonal stick sits between them.
+## Full-stick tilt limits. Deliberately past vertical in every direction: at
+## full deflection you commit to going over, then reverse the stick after the
+## controls pass through inverted to take the shortest path through the second
+## half of a flip. The two combine as an ellipse, so a diagonal stick sits
+## between them.
 @export_range(0.0, 179.0, 0.5) var max_bank_deg: float = 110.0
-@export_range(0.0, 179.0, 0.5) var max_pitch_deg: float = 75.0
+@export_range(0.0, 179.0, 0.5) var max_pitch_deg: float = 110.0
 ## Attitude spring stiffness, rad/s^2 per rad of error. Higher = snappier.
-@export var attitude_p: float = 14.0
+@export var attitude_p: float = 9.0
 ## Attitude damping. Roughly 2*sqrt(attitude_p) is critically damped.
-@export var attitude_d: float = 7.0
+@export var attitude_d: float = 6.0
 
 @export_group("Yaw")
-@export var max_yaw_rate: float = 1.9
-@export var yaw_p: float = 6.0
+@export var max_yaw_rate: float = 1.4
+@export var yaw_p: float = 4.0
 ## Banking also swings the nose round, so a turn is one input instead of two.
 ## rad/s of yaw at 90 degrees of bank. 0 disables and leaves yaw to the pedals.
-@export var bank_turn_rate: float = 0.8
+@export var bank_turn_rate: float = 0.0
 ## Rule 4: rotor torque reaction. rad/s of yaw at full collective, before the
 ## pilot corrects with pedal. 0 disables.
-@export var torque_coupling: float = 0.3
+@export var torque_coupling: float = 0.0
+
+@export_group("Flip commitment")
+## How far the cyclic must be reversed against an inverted aircraft's rotation
+## before it commits to completing the full flip.
+@export_range(0.1, 1.0, 0.01) var flip_reversal_input: float = 0.75
+## A deliberate hold prevents a quick correction from triggering a full flip.
+@export_range(0.0, 1.0, 0.01) var flip_reversal_hold: float = 0.20
 
 @export_group("Crash")
 ## Impact speed, m/s, that writes off the airframe. Measured against Jolt: the
@@ -115,6 +123,10 @@ var _spawn_transform := Transform3D.IDENTITY
 var _reset_queued := false
 var _rotor_spin := 1.0
 var _inertia := Vector3.ONE
+## Non-zero while a reversed cyclic command is carrying an inverted aircraft
+## through the remainder of a full rotation.
+var _flip_completion_axis := Vector3.ZERO
+var _flip_reversal_time := 0.0
 
 
 func _ready() -> void:
@@ -163,9 +175,63 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if is_local_authority():
 		control.copy_from(input_source.poll(state.step))
 
-	var flight := compute_flight(state.transform, state.linear_velocity, state.angular_velocity, control)
+	var basis := state.transform.basis.orthonormalized()
+	_update_flip_completion(basis, state.angular_velocity, control, state.step)
+	var flight := compute_flight(
+		state.transform,
+		state.linear_velocity,
+		state.angular_velocity,
+		control,
+		_flip_completion_axis,
+	)
 	state.apply_central_force(flight[0])
 	state.apply_torque(flight[1])
+
+
+## Once inverted, reversing cyclic against the current rotation means "finish
+## the flip", not "take the short way back". Quaternion orientations do not
+## retain whole turns, so remember the rotation axis until we are upright and
+## settled again.
+func _update_flip_completion(
+	basis: Basis,
+	angular: Vector3,
+	ctl: HeliInput,
+	delta: float,
+) -> void:
+	var uprightness := basis.y.dot(Vector3.UP)
+	if _flip_completion_axis.length_squared() > 1e-4:
+		_flip_reversal_time = 0.0
+		var flip_rate := angular.dot(_flip_completion_axis)
+		if uprightness > 0.995 and absf(flip_rate) < 0.2:
+			_flip_completion_axis = Vector3.ZERO
+		return
+
+	# Require a meaningful amount of inversion, not a momentary crossing of the
+	# horizon during an ordinary steep bank.
+	if uprightness > -0.15:
+		_flip_reversal_time = 0.0
+		return
+
+	var cyclic := Vector2(ctl.roll, ctl.pitch)
+	if cyclic.length() < flip_reversal_input:
+		_flip_reversal_time = 0.0
+		return
+
+	var tilt_rate := angular - Vector3.UP * angular.dot(Vector3.UP)
+	if tilt_rate.length_squared() < 0.04:
+		_flip_reversal_time = 0.0
+		return
+
+	var level := Basis.from_euler(Vector3(0.0, _heading_of(basis), 0.0))
+	var command_axis := (level * Vector3(cyclic.y, 0.0, -cyclic.x)).normalized()
+	var is_deliberate_reversal := command_axis.dot(tilt_rate.normalized()) < -0.7
+	if is_deliberate_reversal:
+		_flip_reversal_time += delta
+	else:
+		_flip_reversal_time = 0.0
+	if _flip_reversal_time >= flip_reversal_hold:
+		_flip_completion_axis = tilt_rate.normalized()
+		_flip_reversal_time = 0.0
 
 
 func _check_impact(state: PhysicsDirectBodyState3D) -> bool:
@@ -194,7 +260,13 @@ func _check_impact(state: PhysicsDirectBodyState3D) -> bool:
 ## re-simulate, this function comes across unchanged.
 ##
 ## Returns [force, torque], both world space.
-func compute_flight(xform: Transform3D, velocity: Vector3, angular: Vector3, ctl: HeliInput) -> Array:
+func compute_flight(
+	xform: Transform3D,
+	velocity: Vector3,
+	angular: Vector3,
+	ctl: HeliInput,
+	flip_completion_axis := Vector3.ZERO,
+) -> Array:
 	var basis := xform.basis.orthonormalized()
 	var up := basis.y
 	var force := Vector3.DOWN * (gravity * mass)
@@ -231,10 +303,12 @@ func compute_flight(xform: Transform3D, velocity: Vector3, angular: Vector3, ctl
 	# because euler order YXZ goes singular at 90 degrees of pitch, and we now
 	# deliberately let the stick command more than that.
 	var level := Basis.from_euler(Vector3(0.0, _heading_of(basis), 0.0))
-	var deflection := Vector2(
-		ctl.roll * deg_to_rad(max_bank_deg),
-		ctl.pitch * deg_to_rad(max_pitch_deg),
-	)
+	var deflection := Vector2.ZERO
+	if flip_completion_axis.length_squared() < 1e-4:
+		deflection = Vector2(
+			ctl.roll * deg_to_rad(max_bank_deg),
+			ctl.pitch * deg_to_rad(max_pitch_deg),
+		)
 	var target := level
 	var tilt := deflection.length()
 	if tilt > 1e-4:
@@ -243,9 +317,15 @@ func compute_flight(xform: Transform3D, velocity: Vector3, angular: Vector3, ctl
 		var axis := level * Vector3(deflection.y, 0.0, -deflection.x).normalized()
 		target = level.rotated(axis, tilt)
 
-	# Shortest-arc error as a rotation vector, converted to world space.
+	# Usually use the shortest-arc error. While completing a flip, select the
+	# quaternion sign whose rotation continues along the latched axis instead;
+	# that preserves the missing whole-turn information until we are upright.
 	var error := Quaternion(basis).inverse() * Quaternion(target)
-	if error.w < 0.0:
+	var error_direction := basis * Vector3(error.x, error.y, error.z)
+	if flip_completion_axis.length_squared() > 1e-4:
+		if error_direction.dot(flip_completion_axis) < 0.0:
+			error = Quaternion(-error.x, -error.y, -error.z, -error.w)
+	elif error.w < 0.0:
 		error = Quaternion(-error.x, -error.y, -error.z, -error.w)
 	var error_world := basis * (Vector3(error.x, error.y, error.z) * 2.0)
 
@@ -256,8 +336,8 @@ func compute_flight(xform: Transform3D, velocity: Vector3, angular: Vector3, ctl
 
 	# --- Yaw (rate controlled, like pedals) -------------------------------
 	# basis.x.y is how far the right side has dropped, so it goes negative in a
-	# right bank and feeds a right-hand turn. Collective drags the nose right
-	# too (rule 4), which is the pedals' day job.
+	# right bank and can feed a right-hand turn. Collective can drag the nose
+	# right too. Both couplings default off so yaw belongs to the pedals.
 	# Torque reaction tracks thrust *relative to hover*: at a steady hover the
 	# tail rotor is already trimmed for it, so it's the change you feel.
 	var target_yaw_rate := -ctl.yaw * max_yaw_rate \
@@ -277,20 +357,31 @@ func _torque_for(basis: Basis, ang_accel: Vector3) -> Vector3:
 	return basis * (local * _inertia)
 
 
-## Which way we're facing, in radians. Uses the nose, but falls back to the
-## cabin roof when the nose is within a few degrees of straight up or down —
-## the nose's horizontal projection vanishes there, and at these tilt limits we
-## can genuinely get pointed that way.
+## The level heading underneath the aircraft's tilt, in radians.
+##
+## Reading heading from the nose's horizontal projection makes it jump by 180
+## degrees during a forward/back flip: once the nose passes vertical it points
+## toward the other horizon even though the pilot has not yawed. Decomposing
+## the orientation into swing (tilt) and twist (heading around world up) keeps
+## the reference frame stable through roll, pitch, and diagonal inversions.
 func _heading_of(basis: Basis) -> float:
-	var flat := Vector3(basis.z.x, 0.0, basis.z.z)
-	if flat.length_squared() < 0.04:
-		# Nose up: basis.z.y is -1 and the roof points aft, so the roof *is* our
-		# backward reference. Nose down: both flip. Hence the negated sign.
-		var roof := basis.y * -signf(basis.z.y)
-		flat = Vector3(roof.x, 0.0, roof.z)
-	if flat.length_squared() < 1e-6:
+	var orientation := Quaternion(basis)
+	var twist_length := sqrt(
+		orientation.y * orientation.y + orientation.w * orientation.w
+	)
+	# Swing/twist has one unavoidable singular point at an exact 180-degree
+	# tilt. Physics will almost always step across it; this merely keeps the
+	# result finite if a transform lands on it exactly.
+	if twist_length < 1e-6:
 		return 0.0
-	return atan2(flat.x, flat.z)
+	var twist_y := orientation.y / twist_length
+	var twist_w := orientation.w / twist_length
+	return wrapf(2.0 * atan2(twist_y, twist_w), -PI, PI)
+
+
+## Inversion-safe heading for camera rigs and other presentation code.
+func level_heading() -> float:
+	return _heading_of(global_basis.orthonormalized())
 
 
 ## Lever position that exactly holds a hover with the disc level.
@@ -325,6 +416,8 @@ func _process(delta: float) -> void:
 
 func reset() -> void:
 	_reset_queued = true
+	_flip_completion_axis = Vector3.ZERO
+	_flip_reversal_time = 0.0
 	_rotor_spin = 1.0
 	input_source.center_stick()
 	input_source.set_throttle(hover_throttle())

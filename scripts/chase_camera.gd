@@ -58,4 +58,6 @@ func _physics_process(delta: float) -> void:
 
 
 func _target_heading() -> float:
+	if _target is Helicopter:
+		return (_target as Helicopter).level_heading()
 	return _target.global_basis.get_euler(EULER_ORDER_YXZ).y

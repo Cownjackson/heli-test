@@ -13,14 +13,14 @@ extends Node
 @export var enabled: bool = false
 
 @export_group("Mouse cyclic")
-@export var mouse_sensitivity: float = 0.0030
+@export var mouse_sensitivity: float = 0.0022
 @export var invert_mouse_pitch: bool = false
 ## Units of stick per second that the stick drifts back to centre. 0 = holds.
 @export var stick_return: float = 0.0
 
 @export_group("Keyboard cyclic")
 ## How fast the arrow keys sweep the virtual stick, in stick units per second.
-@export var key_stick_rate: float = 2.2
+@export var key_stick_rate: float = 1.6
 
 @export_group("Cyclic response")
 ## Softens the middle of the stick without touching the ends, so the big tilt
@@ -28,7 +28,7 @@ extends Node
 ## cubic. At 0.65, half stick asks for ~26% tilt instead of 50%.
 ## Applied to the stick's magnitude, not per-axis, so the response stays
 ## identical in every direction rather than bulging along the diagonals.
-@export_range(0.0, 1.0, 0.01) var cyclic_expo: float = 0.65
+@export_range(0.0, 1.0, 0.01) var cyclic_expo: float = 0.75
 
 @export_group("Collective")
 ## How fast W/S drive the collective lever, in lever units per second.
