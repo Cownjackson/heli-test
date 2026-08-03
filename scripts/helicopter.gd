@@ -186,7 +186,13 @@ func is_networked() -> bool:
 	if not is_inside_tree():
 		return false
 	var peer := multiplayer.multiplayer_peer
-	return peer != null and not (peer is OfflineMultiplayerPeer)
+	if peer == null or peer is OfflineMultiplayerPeer:
+		return false
+	# A peer that is still handshaking reports a provisional unique id that
+	# matches no aircraft, so treating it as networked silently disowns every
+	# helicopter until the connection resolves — losing the HUD and all control.
+	# Until we are actually connected, this machine is still offline.
+	return peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 
 
 ## False once this aircraft is on its way out.
