@@ -50,16 +50,31 @@ func _draw() -> void:
 		"pitch    %5.1f deg" % rad_to_deg(euler.x),
 		"tilt     %5.1f deg" % tilt,
 		"throttle %4.0f %%   (hover %.0f %%)" % [_heli.control.throttle * 100.0, _heli.hover_throttle() * 100.0],
+		"health   %5.1f / %.0f" % [_heli.health, _heli.max_health],
 		"",
 		"session  %s" % NetworkSession.status_text,
 		"players  %d" % get_tree().get_nodes_in_group(Helicopter.GROUP).size(),
 		"",
+	]
+	# Everyone else's health, because tuning damage against a target whose health
+	# you cannot see is guesswork — and solo, the test target is the only thing
+	# there is to shoot.
+	var others := _other_helicopters()
+	for other in others:
+		lines.append("target %-13s %3.0f %% %s" % [
+			other.name,
+			other.health / maxf(1.0, other.max_health) * 100.0,
+			"WRECKED" if other.is_crashed else "",
+		])
+	if not others.is_empty():
+		lines.append("")
+	lines.append_array([
 		"W/S collective   A/D pedals",
 		"mouse or arrows  cyclic",
 		"LMB twin guns   Alt/RMB aim lock",
 		"R reset   Esc release mouse",
-		"F1 host   F2 join   F3 leave",
-	]
+		"F1 host  F2 join  F3 leave  F5 tuning",
+	])
 	var y := MARGIN + font_size
 	for line: String in lines:
 		draw_string(font, Vector2(MARGIN, y), line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
@@ -106,6 +121,18 @@ func _draw_no_aircraft(font: Font) -> void:
 		y += 24.0
 
 
+## Every live helicopter except the one being flown, in a stable order so the
+## readout doesn't reshuffle between frames.
+func _other_helicopters() -> Array[Helicopter]:
+	var others: Array[Helicopter] = []
+	for node in get_tree().get_nodes_in_group(Helicopter.GROUP):
+		var heli := node as Helicopter
+		if heli != null and heli != _heli and heli.is_live():
+			others.append(heli)
+	others.sort_custom(func(a: Helicopter, b: Helicopter) -> bool: return a.name < b.name)
+	return others
+
+
 ## Ammo lives apart from the tuning readout so it remains readable at a glance
 ## during flight. One ammo unit represents one paired-gun volley.
 func _draw_weapon_status(font: Font) -> void:
@@ -116,6 +143,17 @@ func _draw_weapon_status(font: Font) -> void:
 	var panel_position := size - panel_size - Vector2(MARGIN, MARGIN)
 	draw_rect(Rect2(panel_position, panel_size), Color(0.02, 0.035, 0.03, 0.72), true)
 	draw_rect(Rect2(panel_position, panel_size), Color(0.55, 0.75, 0.58, 0.55), false, 1.0)
+
+	# Health sits directly above the ammo, because in a fight they are the same
+	# glance: how much can I still give, and how much can I still take.
+	var bar := Rect2(panel_position - Vector2(0.0, 22.0), Vector2(panel_size.x, 14.0))
+	var fraction := clampf(_heli.health / maxf(1.0, _heli.max_health), 0.0, 1.0)
+	draw_rect(bar, Color(0.02, 0.035, 0.03, 0.72), true)
+	draw_rect(Rect2(bar.position, Vector2(bar.size.x * fraction, bar.size.y)),
+		Color(0.9, 0.3, 0.25) if fraction < 0.34 else Color(0.4, 0.8, 0.5), true)
+	draw_rect(bar, Color(0.55, 0.75, 0.58, 0.55), false, 1.0)
+	draw_string(font, bar.position + Vector2(6.0, 11.0), "%.0f" % _heli.health,
+		HORIZONTAL_ALIGNMENT_LEFT, bar.size.x - 12.0, 11, Color(0.95, 0.97, 0.95))
 
 	var ammo_text := "AMMO  %d / %d" % [weapons.ammo, weapons.max_ammo]
 	draw_string(font, panel_position + Vector2(12.0, 31.0), ammo_text,

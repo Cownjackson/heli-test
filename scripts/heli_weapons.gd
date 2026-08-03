@@ -159,6 +159,10 @@ func _spawn_volley(
 		]
 		projectile.authoritative_simulation = authoritative
 		projectile.fallback_time_scale = time_scale
+		# Volley identity, so a target can tell both barrels of one shot from
+		# two unrelated hits and pay the double-hit bonus for the former.
+		projectile.shooter_peer_id = _heli.peer_id
+		projectile.volley_id = volley_id
 		projectile_parent.add_child(projectile)
 		projectile.global_position = muzzle_positions[barrel_index]
 		projectile.launch_guided(

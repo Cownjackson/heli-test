@@ -115,6 +115,25 @@ const GROUP := &"helicopters"
 ## speed, so this reads directly as "you die above this many m/s".
 @export var crash_impact_speed: float = 6.5
 
+@export_group("Damage")
+## Health pool. A missile removes `HeliProjectile.damage` (20 by default), so
+## five connecting missiles write the airframe off.
+@export var max_health: float = 100.0
+## Scales all incoming missile damage on this airframe. **Set this to 0 to test
+## the pure-impulse fork**: the health pool stops mattering entirely and the
+## only way to kill anyone is to blast them into the ground.
+@export_range(0.0, 4.0, 0.05) var damage_multiplier: float = 1.0
+## Scales all incoming blast impulse. Set to 0 to test the pure-health-pool
+## fork, where hits are bookkeeping and never disturb the target's flying.
+@export_range(0.0, 4.0, 0.05) var impulse_multiplier: float = 1.0
+## Damage and blast multiplier for a second missile from the *same volley*, so
+## landing both barrels beats landing one twice. 1.0 turns the bonus off.
+@export_range(1.0, 3.0, 0.05) var double_hit_bonus: float = 1.5
+## How long after the first missile of a volley a second still counts as part of
+## it. Both barrels leave together, so this only has to cover the spread in
+## their flight times, not the fire cooldown.
+@export var double_hit_window: float = 1.5
+
 @export_group("Rotors")
 @export var main_rotor_rpm: float = 320.0
 @export var tail_rotor_rpm: float = 1100.0
@@ -137,6 +156,14 @@ const GROUP := &"helicopters"
 var control := HeliInput.new()
 
 var is_crashed: bool = false
+## Remaining airframe health. Only ever changed on the server; clients receive
+## it with the rest of the replicated state so they can draw it.
+var health: float = 100.0
+
+## Which volley last connected, and when. Server-side only, and the whole reason
+## a same-volley double hit can be told apart from two separate shots.
+var _last_volley_key := ""
+var _last_volley_time := -1000.0
 
 var _spawn_transform := Transform3D.IDENTITY
 var _reset_queued := false
@@ -157,6 +184,15 @@ var _has_net_state := false
 
 func _ready() -> void:
 	add_to_group(GROUP)
+	# Aircraft are spawned continuously, so combat tuning has to be picked up at
+	# birth as well as pushed to what already exists, or the next respawn would
+	# quietly undo every slider.
+	var tree := get_tree()
+	max_health = DeveloperSettings.tuned(tree, &"max_health", max_health)
+	damage_multiplier = DeveloperSettings.tuned(tree, &"damage_multiplier", damage_multiplier)
+	impulse_multiplier = DeveloperSettings.tuned(tree, &"impulse_multiplier", impulse_multiplier)
+	double_hit_bonus = DeveloperSettings.tuned(tree, &"double_hit_bonus", double_hit_bonus)
+	health = max_health
 	_spawn_transform = global_transform
 	_inertia = _compute_inertia()
 	# The flight model applies its own gravity, so the engine must not add any.
@@ -313,6 +349,7 @@ func _broadcast_state() -> void:
 		linear_velocity,
 		control.throttle,
 		is_crashed,
+		health,
 	)
 
 
@@ -325,12 +362,16 @@ func _receive_state(
 	net_velocity: Vector3,
 	net_throttle: float,
 	net_crashed: bool,
+	net_health: float,
 ) -> void:
 	_net_position = net_position
 	_net_rotation = net_rotation
 	_net_velocity = net_velocity
 	_has_net_state = true
 	is_crashed = net_crashed
+	# Sent every tick rather than on change, so a client that missed the packet
+	# where a hit landed is corrected by the next one instead of staying wrong.
+	health = net_health
 	# Carries the lever so the HUD gauge and the rotor spin stay honest on a
 	# client, including for the local player's own aircraft.
 	if not is_local_authority():
@@ -351,6 +392,47 @@ func _interpolate(delta: float) -> void:
 	global_position = global_position.lerp(_net_position, t)
 	var current := Quaternion(global_basis.orthonormalized())
 	global_basis = Basis(current.slerp(_net_rotation, t))
+
+
+## One missile connecting. Server-side only, like every other gameplay decision:
+## clients are told the result through the replicated health and crash flag.
+##
+## The two halves are deliberately independent. `amount` drains a health pool;
+## `impulse` is a blast that throws the aircraft off its line and leaves the
+## pilot to fly out of it. Either can be scaled to zero on the target, which is
+## what makes the two candidate damage models testable side by side instead of
+## one-or-the-other.
+##
+## `offset` is where the hit landed relative to the centre of mass, already
+## scaled by the projectile's spin dial — passing it non-zero is what turns a
+## shove into a tumble, because a hit on the tail boom has leverage a hit on the
+## nose does not.
+func apply_damage(
+	amount: float,
+	impulse: Vector3,
+	offset: Vector3,
+	volley_key: String,
+) -> void:
+	# A wreck absorbs nothing further. Without this the second missile of a
+	# volley could re-kill an aircraft that is already tumbling.
+	if not is_simulated() or is_crashed:
+		return
+
+	var bonus := 1.0
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	if volley_key != "" and volley_key == _last_volley_key \
+			and now - _last_volley_time <= double_hit_window:
+		bonus = double_hit_bonus
+	_last_volley_key = volley_key
+	_last_volley_time = now
+
+	apply_impulse(impulse * impulse_multiplier * bonus, offset)
+
+	health = maxf(0.0, health - amount * damage_multiplier * bonus)
+	if health <= 0.0:
+		is_crashed = true
+		control.clear()
+		crashed.emit()
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
@@ -620,6 +702,8 @@ func reset() -> void:
 			_request_reset.rpc_id(1)
 		return
 	_reset_queued = true
+	health = max_health
+	_last_volley_key = ""
 	_flip_completion_axis = Vector3.ZERO
 	_flip_reversal_time = 0.0
 	_rotor_spin = 1.0

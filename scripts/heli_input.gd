@@ -25,12 +25,15 @@ var throttle: float = 0.0
 var aim_point := Vector3.ZERO
 
 
+## Neutralises the *controls*. Deliberately leaves `aim_point` alone: it is not
+## a control surface that springs to centre, it is a place in the world, and
+## zeroing it aimed every missile already in flight at the world origin the
+## instant its launcher was wrecked.
 func clear() -> void:
 	pitch = 0.0
 	roll = 0.0
 	yaw = 0.0
 	throttle = 0.0
-	aim_point = Vector3.ZERO
 
 
 func copy_from(other: HeliInput) -> void:

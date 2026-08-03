@@ -10,7 +10,29 @@ extends Node3D
 ## curved intercept instead of snapping the missile directly onto the cursor.
 @export var guidance_turn_rate: float = 0.7
 @export var lifetime: float = 15.0
+## Impulse handed to ordinary rigid bodies that are not helicopters. Scenery is
+## static, so this is currently near-dead — helicopter hits go through the
+## damage block below instead.
 @export var impact_impulse: float = 18.0
+
+@export_group("Damage")
+## Health removed from a helicopter per missile. Against the default 100-point
+## pool, five connecting missiles are a wreck.
+@export var damage: float = 20.0
+## Blast handed to a struck helicopter, in N·s along the missile's travel
+## direction. 7200 against the 900 kg airframe is 8 m/s along the missile's
+## line plus 3.6 up from `blast_lift` — measured at 8.6 m/s of resultant kick
+## and 0.45 rad/s of spin, which is enough that the pilot has to fly out of it
+## rather than absorb it. Both barrels connecting comes to 21.5 m/s.
+@export var blast_impulse: float = 7200.0
+## Fraction of the blast redirected straight up, because an explosion throws a
+## target off its line rather than politely along the missile's path.
+@export_range(0.0, 2.0, 0.05) var blast_lift: float = 0.45
+## How much of the hit's real lever arm to keep, 0..1. At 0 the blast is purely
+## central and only shoves. At 1 a tail-boom hit delivers its full physical
+## torque, which is a violent tumble on an airframe this size. This is the dial
+## between "annoying" and "you are now upside down".
+@export_range(0.0, 1.0, 0.01) var blast_spin: float = 0.35
 @export var ignition_delay: float = 0.6
 @export var initial_drop_speed: float = 2.5
 @export var drop_acceleration: float = 10.0
@@ -21,6 +43,12 @@ extends Node3D
 ## True only offline or on the server. Client replicas render streamed state
 ## and never run guidance, collision queries, impulses, or lifetime decisions.
 var authoritative_simulation: bool = true
+
+## Which shot this missile belongs to. Set by `HeliWeapons` at spawn, and the
+## only way a target can tell the two barrels of one volley apart from two
+## separate shots that happened to land close together.
+var shooter_peer_id: int = 0
+var volley_id: int = 0
 
 @onready var _trail: GPUParticles3D = $Trail
 @onready var _sparks: GPUParticles3D = $Sparks
@@ -42,6 +70,14 @@ var _replica_age := 0.0
 
 func _ready() -> void:
 	add_to_group(&"heli_projectile")
+	# Missiles are created constantly, so combat tuning has to be read at birth;
+	# pushing slider values only to what is already in flight would last exactly
+	# until the current volley expired.
+	var tree := get_tree()
+	damage = DeveloperSettings.tuned(tree, &"damage", damage)
+	blast_impulse = DeveloperSettings.tuned(tree, &"blast_impulse", blast_impulse)
+	blast_lift = DeveloperSettings.tuned(tree, &"blast_lift", blast_lift)
+	blast_spin = DeveloperSettings.tuned(tree, &"blast_spin", blast_spin)
 	_trail.emitting = false
 	_sparks.emitting = false
 
@@ -94,14 +130,33 @@ func _physics_process(delta: float) -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit:
 		global_position = hit.position
-		var collider := hit.collider as RigidBody3D
-		if collider:
-			collider.apply_central_impulse(_velocity.normalized() * impact_impulse)
+		_resolve_hit(hit)
 		_explode(hit.position)
 		return
 
 	global_position = next_position
 	_broadcast_network_state()
+
+
+## Server-side. Everything a hit does to the world happens here, so there is one
+## place to look when a weapon effect is wrong.
+func _resolve_hit(hit: Dictionary) -> void:
+	var target := hit.collider as Helicopter
+	if target != null:
+		var direction := _velocity.normalized()
+		# Up is world up, not the missile's up: a blast lifts, it does not bank
+		# with whatever attitude the missile happened to be flying at.
+		var impulse := (direction + Vector3.UP * blast_lift) * blast_impulse
+		target.apply_damage(
+			damage,
+			impulse,
+			(hit.position - target.global_position) * blast_spin,
+			"%d:%d" % [shooter_peer_id, volley_id],
+		)
+		return
+	var body := hit.collider as RigidBody3D
+	if body != null:
+		body.apply_central_impulse(_velocity.normalized() * impact_impulse)
 
 
 func _broadcast_network_state() -> void:
@@ -177,6 +232,7 @@ func _refresh_guidance_target() -> void:
 
 func _effective_time_scale() -> float:
 	if is_instance_valid(_guidance_source) \
+			and _guidance_source.is_inside_tree() \
 			and _guidance_source.has_method(&"get_projectile_time_scale"):
 		return float(_guidance_source.get_projectile_time_scale())
 	return fallback_time_scale

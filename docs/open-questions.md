@@ -22,7 +22,7 @@ of them answering the same question differently.
 
 | # | Question | Detail | Owner |
 |---|---|---|---|
-| 1 | Damage model: health pool, or impulse large enough to make the target crash itself? | [weapons.md](weapons.md#1-there-is-no-damage-model-at-all) | weapons chat |
+| 1 | Damage model: health pool, or blast large enough to make the target crash itself? Both are now implemented and each can be zeroed on the target, so this is a tuning session away from an answer — and the losing half then gets deleted, not left at zero. | [weapons.md](weapons.md#1-damage-both-models-are-implemented-so-the-fork-can-be-flown) | multiplayer chat |
 | 3 | Are these guns or missiles? Code, HUD and behaviour currently disagree. | [weapons.md](weapons.md#the-projectile) | gun features chat |
 | 5 | When do we actually swap `RigidBody3D` for the custom integrator? Now has a shape — when the game leaves LAN and needs prediction — but no schedule. | [architecture.md](architecture.md#but-the-first-playable-test-should-still-be-option-a-over-lan) | — |
 | 7 | Is `throttle_rate` (0.75/s, ~1.3 s lever travel) responsiveness-to-plan-around, or just sluggish? | [flight-model.md](flight-model.md#arresting-a-descent-catching-a-sink) | flight tuning |

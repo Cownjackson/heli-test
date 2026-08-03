@@ -86,22 +86,57 @@ Unresolved forks are indexed in [open-questions.md](open-questions.md), which is
 where ownership is tracked. Settled networking decisions remain here as the
 rationale for the implementation.
 
-### 1. There is no damage model at all
+### 1. Damage: both models are implemented, so the fork can be flown
 
-This is the largest gap. A projectile hit calls
-`apply_central_impulse(direction * impact_impulse)` with `impact_impulse = 18`.
-Against a 900 kg helicopter that is a nudge — roughly 0.02 m/s of velocity
-change. Nothing tracks health, and nothing can be destroyed by being shot.
+The question was health pool *or* blast big enough to make you crash yourself.
+Rather than pick blind, a hit now does **both**, and each half has a multiplier
+on the receiving airframe that can be turned down to zero:
 
-The only way anything dies is `Helicopter._check_impact()`, which needs a summed
-contact impulse above `crash_impact_speed * mass` — 5850 for the current
-airframe, against the 18 a projectile delivers. So the target helicopter in
-`world.tscn` is presently invulnerable to gunfire.
+- `Helicopter.damage_multiplier = 0` → pure blast. The health pool stops
+  mattering and the only way to kill anyone is to throw them into the ground.
+- `Helicopter.impulse_multiplier = 0` → pure health pool. Hits are bookkeeping
+  and never disturb the target's flying.
 
-Deciding between "projectiles do damage to a health pool" and "projectiles do
-enough impulse to make you crash yourself" is a real gameplay fork, and the
-second option is far more interesting given the flight model already has a
-convincing crash system. It has not been decided.
+So the fork is now a slider, not a rewrite. Whichever way it resolves, the
+losing half gets deleted rather than left at zero.
+
+**Baseline numbers** (all measured, commit `153b0af`+):
+
+| Value | Default | Effect |
+|---|---|---|
+| `Helicopter.max_health` | 100 | — |
+| `HeliProjectile.damage` | 20 | Five connecting missiles are a wreck |
+| `HeliProjectile.blast_impulse` | 7200 N·s | 8.6 m/s of kick on the 900 kg airframe |
+| `HeliProjectile.blast_lift` | 0.45 | Fraction of the blast redirected world-up |
+| `HeliProjectile.blast_spin` | 0.35 | Fraction of the hit's real lever arm kept |
+| `Helicopter.double_hit_bonus` | 1.5 | Second missile of the *same* volley |
+
+Note the baseline is five *missiles*, not five volleys — which is what makes a
+fully-connecting volley worth more than a split one without any special casing.
+Both barrels landing is 20 + 20×1.5 = **50 damage and 21.5 m/s**, so two clean
+volleys are a kill. If five *volleys* was the intent instead, that is one drag
+of the damage slider to 10.
+
+**The double-hit bonus** is why `HeliProjectile` carries `shooter_peer_id` and
+`volley_id`. The target remembers the last volley that hit it and for
+`double_hit_window` (1.5 s) treats a second missile with the same key as part of
+the same shot. The window only has to cover the spread in flight times between
+two barrels that left together, not the fire cooldown.
+
+**`blast_spin` is the interesting dial.** The blast is applied at the hit
+position rather than centrally, so leverage is free and physical: a tail-boom
+hit tumbles you and a nose hit does not. At 1.0 the full torque of a 7200 N·s
+impulse on a 3 m arm is a violent, probably unrecoverable spin, which is why the
+default keeps only a third of it.
+
+Blast, damage and the wreck decision all run **only on the server**, inside
+`Helicopter.apply_damage()`. Clients receive `health` and `is_crashed` in the
+ordinary state packet and the resulting motion as replicated transforms; there
+is no client-side damage code at all.
+
+`_check_impact()` is untouched and still writes the airframe off above
+`crash_impact_speed` (6.5 m/s) of contact — so "blast them into the ground"
+kills through the existing crash system rather than a second death path.
 
 ### 2. Hits and projectile motion are server-authoritative
 
@@ -185,6 +220,25 @@ copy is the only value used to accept it.
 
 This mirrors the flight boundary: clients provide explicit intent, the server
 owns gameplay state, and remote machines interpolate presentation.
+
+---
+
+## Tuning combat live
+
+`F5` toggles the developer panel (top right). Every combat value above is a
+slider on it, and each one writes to **SceneTree metadata as well as to live
+nodes** — helicopters and projectiles are spawned continuously, so pushing a
+value only to what already exists would be undone by the next respawn or the
+next volley. `DeveloperSettings.tuned()` is the read side, called from
+`_ready()` on both classes.
+
+Adding a knob is one entry in `DeveloperSettings.ROWS` plus a case in
+`_apply_live()`. The rows are generated rather than authored in the scene
+specifically so that stays true.
+
+**These sliders only bite on the host.** Damage, blast and health are evaluated
+exclusively on the server, so dragging them on a client changes nothing anyone
+can see. Tune on the machine that pressed Host.
 
 ---
 

@@ -37,6 +37,7 @@ const SPAWN_RING := 35.0
 @onready var _projectiles: Node3D = $Projectiles
 @onready var _spawner: MultiplayerSpawner = $HelicopterSpawner
 @onready var _connect_panel: Control = $HUD/ConnectPanel
+@onready var _developer_settings: Control = $HUD/DeveloperSettings
 
 ## Cached only as an optimisation. Always go through _local_heli(), which
 ## re-resolves if the aircraft was despawned or ownership changed.
@@ -209,6 +210,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			NetworkSession.leave()
 		KEY_F4:
 			_connect_panel.toggle()
+		KEY_F5:
+			# The combat sliders are large and only useful while tuning.
+			_developer_settings.visible = not _developer_settings.visible
 		_:
 			return
 	get_viewport().set_input_as_handled()

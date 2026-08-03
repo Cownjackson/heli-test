@@ -34,6 +34,7 @@ godot --headless --path <project-dir> --import
 | `Esc` | Release mouse capture |
 | `F1` / `F2` / `F3` | Host / join / leave a LAN session |
 | `F4` | Open the session panel (type an address, see your own) |
+| `F5` | Show/hide the combat tuning sliders (host only) |
 
 Two things surprise new pilots, both deliberate:
 

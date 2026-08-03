@@ -121,42 +121,5 @@ script = ExtResource("4_connect")
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -276.0
-offset_top = 16.0
-offset_right = -16.0
-offset_bottom = 132.0
 grow_horizontal = 0
 script = ExtResource("5_dev_settings")
-
-[node name="Margin" type="MarginContainer" parent="HUD/DeveloperSettings"]
-layout_mode = 2
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 9
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 9
-
-[node name="VBox" type="VBoxContainer" parent="HUD/DeveloperSettings/Margin"]
-layout_mode = 2
-theme_override_constants/separation = 3
-
-[node name="Title" type="Label" parent="HUD/DeveloperSettings/Margin/VBox"]
-layout_mode = 2
-text = "DEVELOPER — PROJECTILE TIME"
-
-[node name="Value" type="Label" parent="HUD/DeveloperSettings/Margin/VBox"]
-layout_mode = 2
-text = "1.00 x"
-horizontal_alignment = 2
-
-[node name="Slider" type="HSlider" parent="HUD/DeveloperSettings/Margin/VBox"]
-layout_mode = 2
-tooltip_text = "Scales missile movement, ignition, guidance, lifetime, trails, sparks, and explosions."
-min_value = 0.25
-max_value = 2.0
-step = 0.05
-value = 1.0
-
-[node name="Hint" type="Label" parent="HUD/DeveloperSettings/Margin/VBox"]
-layout_mode = 2
-text = "Esc: release mouse to adjust"
-horizontal_alignment = 1
