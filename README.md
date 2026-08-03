@@ -1,18 +1,18 @@
 # heli-test
 
 A multiplayer helicopter game, currently at proof-of-concept stage. Arcade-lite
-flight that still obeys helicopter rules, built in Godot 4.6 with Jolt Physics.
+flight that still obeys helicopter rules, built in Godot 4.7 with Jolt Physics.
 
-**Status:** single-player prototype. The flight model is close to settled, the
-weapons are early, and there is no networking yet — but the architecture is
-built around a specific netcode plan that constrains how the code may be
-written. Read [docs/architecture.md](docs/architecture.md) before changing
-anything in the flight path; some of what looks like stylistic choice is
+**Status:** LAN multiplayer prototype. Two peers can fly together under a
+server-authoritative model, and guided projectiles are replicated. The flight
+model is close to settled; combat damage is still being built. Read
+[docs/architecture.md](docs/architecture.md) before changing anything in the
+flight or networking path; some of what looks like stylistic choice is
 load-bearing.
 
 ## Running it
 
-Open the project in Godot 4.6 and press F5. The main scene is
+Open the project in Godot 4.7 and press F5. The main scene is
 `scenes/world.tscn`.
 
 To check that scripts and scenes still compile without opening the editor:
@@ -49,8 +49,9 @@ Two things surprise new pilots, both deliberate:
 Two peers can fly together. The host simulates every aircraft; clients send
 input and render replicated state. There is no prediction — your own helicopter
 answers one round trip late, which is imperceptible on a LAN and is why no
-reconciliation is needed. Weapons are **not** replicated yet: projectiles are
-local to whoever fired them.
+reconciliation is needed. Weapon requests, ammo, cooldowns, reloads, projectile
+motion, collision, and explosions are server-authoritative and replicated.
+Projectiles do not deal health damage yet.
 
 Press `F4` for the session panel. The host presses **Host**; the panel then lists
 that machine's own addresses and marks which is likely the right one, so there is
@@ -86,8 +87,8 @@ engine. `--join` defaults to `127.0.0.1` if no address is given.
 
 ```
 scenes/
-  world.tscn        Test level: ground, obstacles, and an empty Players node
-                    that helicopters are spawned into at runtime
+  world.tscn        Test level: ground, obstacles, and runtime containers for
+                    spawned helicopters and replicated projectiles
   helicopter.tscn   The aircraft — body, model, input, weapons, camera rig
   projectile.tscn   Guided projectile fired by the guns
   explosion.tscn    Impact effect
@@ -106,7 +107,7 @@ scripts/
 docs/
   architecture.md   Design decisions, the multiplayer plan, and the invariants
   flight-model.md   How the aircraft flies, and how to tune it
-  weapons.md        The weapon system and its unresolved networking questions
+  weapons.md        Weapon behaviour, networking, and remaining design questions
 ```
 
 ## Documentation

@@ -1,8 +1,8 @@
 # Weapons
 
 Early, and less settled than the flight model. This document describes what is
-actually implemented and — more importantly — the design questions that are
-still open, several of which need answering before networking goes in.
+actually implemented and the combat decisions that remain open. Flight and
+projectile replication are now in place; damage is not.
 
 Files: `heli_weapons.gd`, `heli_projectile.gd`, `heli_explosion.gd`,
 `heli_input.gd`, `scenes/projectile.tscn`, `scenes/explosion.tscn`.
@@ -64,12 +64,11 @@ shooter's own collider is excluded at launch.
 
 ---
 
-## Open design questions
+## Design decisions and remaining questions
 
-These are indexed in [open-questions.md](open-questions.md), which is where
-ownership is tracked. The reasoning stays here; when one of them is settled, the
-decision moves to [architecture.md](architecture.md) and its row in the registry
-is removed.
+Unresolved forks are indexed in [open-questions.md](open-questions.md), which is
+where ownership is tracked. Settled networking decisions remain here as the
+rationale for the implementation.
 
 ### 1. There is no damage model at all
 
@@ -88,39 +87,23 @@ enough impulse to make you crash yourself" is a real gameplay fork, and the
 second option is far more interesting given the flight model already has a
 convincing crash system. It has not been decided.
 
-### 2. Hit authority is undecided, and this blocks networking
+### 2. Hits and projectile motion are server-authoritative
 
-Right now the firing client spawns projectiles locally and resolves their
-collisions locally. That cannot survive networking as written. The options are
-the usual three:
+A client click is a reliable request addressed to its own `HeliWeapons` node.
+The server verifies that the RPC sender owns that helicopter, then checks ammo
+and cooldown. Only the server may accept a volley.
 
-- **Server-authoritative hits.** Client fires a cosmetic tracer immediately; the
-  server simulates the real projectile and decides. Safe, but a visible
-  disagreement when they diverge — and these projectiles are *steerable*, so the
-  client's guidance input has to be streamed too.
-- **Client-authoritative hits.** Trivial to implement, trivially cheatable.
-- **Lag-compensated / rewind hits.** The server rewinds to the shooter's view.
-  Standard for hitscan, considerably harder for a 15-second guided projectile.
+The accepted volley is created at matching paths under `World/Projectiles` on
+every peer. Server projectiles run the ignition delay, guidance, lifetime,
+raycast collision, and impact impulse. Client projectiles run none of those;
+they interpolate streamed server transforms and render trails, sparks, and the
+server-triggered explosion. A client therefore cannot create an authoritative
+hit by spawning or steering a local projectile.
 
-The guidance mechanic makes this materially harder than a normal shooter would
-be, because a projectile's whole trajectory depends on continuous input from its
-owner for up to 15 seconds after launch. **This should be decided before
-networking work starts, not during it.**
-
-Two things narrow the choice. First, if guidance travels through `HeliInput` as
-proposed in question 3, the "client's guidance input has to be streamed too"
-objection to server-authoritative hits mostly dissolves — the server is already
-receiving that stream in order to fly the aircraft, and a guided projectile
-becomes an ordinary server-simulated object driven by an input the server holds.
-
-Second, the first networked build is planned as LAN-only and
-server-authoritative — see
-[architecture.md](architecture.md#but-the-first-playable-test-should-still-be-option-a-over-lan).
-At LAN latency, server-authoritative hits need no lag compensation at all to
-feel correct, which makes the third option something to defer rather than
-design for now. The trap is treating that as licence to resolve hits on the
-firing client because it looks identical at 0 ms; it will not look identical
-later, and authority is the expensive thing to move.
+This deliberately chooses ordinary server authority over lag compensation for
+the first LAN build. Guidance already reaches the server through `HeliInput`,
+LAN latency does not justify rewind complexity, and placing hit authority on
+the firing client would be expensive to undo later.
 
 ### 3. Aim travels as a resolved 3D world point
 
@@ -137,40 +120,39 @@ the value projectile guidance needs.
 
 `HeliProjectile._refresh_guidance_target()` still holds a reference to its
 `_guidance_source` and re-queries it every frame, so a projectile's behaviour
-remains coupled to its launcher's lifetime. Removing that object reference
-belongs with authoritative projectile spawning, where the server can give each
-projectile an explicit owner and guidance value.
+remains coupled to its launcher's lifetime on the server. If that launcher is
+despawned, the missile deliberately continues toward its last known point.
+Client replicas hold no guidance-source reference at all.
 
-### 4. Projectiles parent themselves to the current scene
+### 4. Projectiles use one stable runtime parent
 
-`try_fire()` adds projectiles to `get_tree().current_scene`, falling back to the
-root. Once there is a `MultiplayerSpawner`, spawned objects will need a
-designated parent node instead.
+Every peer has `World/Projectiles`. The server's reliable volley RPC creates the
+same named children under that node on each machine, which gives subsequent
+projectile state and explosion RPCs identical node paths. Already-in-flight
+projectiles are intentionally not sent to a client that joins late; with a
+15-second maximum lifetime, that snapshot complexity is deferred.
 
 ---
 
-## Working on weapons ahead of networking
+## Networking boundaries
 
-Networking is not in yet, and weapons work should not wait for it. But a few
-habits now decide whether the weapon system needs a rewrite later or just a
-wiring pass. In rough order of how expensive they are to retrofit:
+The following boundaries are now implemented and should remain explicit as the
+weapon system grows:
 
-**Keep firing decisions in one function.** `try_fire()` is currently the single
-place that checks ammo and cooldown and creates projectiles. That is exactly
-right, and it is what lets the whole thing become server-authoritative by
-changing one call site. Adding a second path that spawns a projectile — a
-special weapon, a burst mode, a test button — is the change that would hurt.
+**Keep firing decisions in one function.** `try_fire()` is the server-side path
+that checks ammo and cooldown and creates projectiles. Client input reaches it
+only through an ownership-checked RPC. Do not add a second spawn path for burst
+modes, tests, or special weapons.
 
 **Do not read the viewport, the camera, or `Input` from anything a remote
 aircraft also runs.** This is the same rule that keeps `compute_flight()` pure,
 applied to weapons. Anything a remote helicopter's weapon needs must arrive as
 data, not be looked up from local globals. See question 3 above.
 
-**Assume projectiles will be spawned by something else.** `try_fire()` adds
-children to `get_tree().current_scene`. Under a `MultiplayerSpawner` the parent
-becomes a designated node and spawning becomes a server-side call. Keeping the
-parent lookup in one place — rather than sprinkling `add_child` around — makes
-that a one-line change.
+**Clients render projectile replicas; they do not simulate them.** Guidance,
+lifetime, collision queries, impact impulses, and explosion timing run only on
+the server. Replica cleanup has a timeout only as protection against a lost or
+invalid node path; it has no gameplay effect.
 
 **Distinguish cosmetic from authoritative.** Muzzle flash, trails, sparks,
 explosions and sound are cosmetic: they can and should fire immediately on the
@@ -180,14 +162,13 @@ as the collision logic are the hard part of retrofitting lag compensation, so
 `heli_explosion.gd` staying a pure effect with no gameplay side effects is worth
 preserving.
 
-**Ammo and cooldown will move.** `ammo`, `cooldown_remaining` and
-`reload_progress` currently advance in `_process()` on every peer independently.
-They will eventually be owned by the server and replicated. Nothing needs to
-change now, but avoid building anything that assumes they are locally writable.
+**Ammo and cooldown are server-owned.** `ammo`, `cooldown_remaining`, and
+`reload_progress` advance only offline or on the server. Clients receive a
+display snapshot every 0.1 seconds and may request a shot, but the server's
+copy is the only value used to accept it.
 
-None of this asks for networking code. It asks for the weapon to stay a function
-of its own state plus explicit input — which is the same property that made the
-flight model straightforward to plan around.
+This mirrors the flight boundary: clients provide explicit intent, the server
+owns gameplay state, and remote machines interpolate presentation.
 
 ---
 

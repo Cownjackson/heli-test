@@ -262,9 +262,22 @@ Two consequences worth knowing:
   `current_velocity()`, which returns the replicated velocity when the body is
   frozen. The HUD and the chase camera both do.
 
+#### Weapons use the same authority split
+
+Clients send reliable fire requests from the helicopter they own. The server
+checks the RPC sender, ammo, and cooldown before accepting. Ammo, cooldown, and
+reload progress advance only on the server and are copied to clients for HUD
+display.
+
+Accepted volleys create matching projectile nodes under `World/Projectiles`.
+The server alone runs guidance, lifetime, raycast collision, impulses, and
+explosion timing. Client projectile nodes only interpolate streamed transforms
+and play the replicated effects. Damage must be added on this server collision
+path; never on a replica.
+
 ### 5. Remote helicopters must not simulate locally
 
-When networking goes in, remote aircraft need `freeze = true` and pure
+In a network session, remote aircraft use `freeze = true` and pure
 interpolation. Writing a transform onto a live `RigidBody3D` every frame means
 fighting the physics engine — you set the transform, the engine overwrites it.
 This is cheap to arrange now and awkward to retrofit.

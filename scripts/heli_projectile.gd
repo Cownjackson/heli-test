@@ -18,6 +18,10 @@ extends Node3D
 @export var explosion_scene: PackedScene
 @export_range(0.1, 3.0, 0.05) var fallback_time_scale: float = 1.0
 
+## True only offline or on the server. Client replicas render streamed state
+## and never run guidance, collision queries, impulses, or lifetime decisions.
+var authoritative_simulation: bool = true
+
 @onready var _trail: GPUParticles3D = $Trail
 @onready var _sparks: GPUParticles3D = $Sparks
 
@@ -29,6 +33,11 @@ var _ignited := false
 var _exploded := false
 var _guidance_source: Node
 var _exclude: Array[RID] = []
+var _net_position := Vector3.ZERO
+var _net_rotation := Quaternion.IDENTITY
+var _net_velocity := Vector3.ZERO
+var _has_net_state := false
+var _replica_age := 0.0
 
 
 func _ready() -> void:
@@ -51,6 +60,14 @@ func launch_guided(
 
 
 func _physics_process(delta: float) -> void:
+	if not authoritative_simulation:
+		_replica_age += delta * fallback_time_scale
+		if _replica_age > lifetime + 5.0:
+			queue_free()
+			return
+		_interpolate_network_state(delta)
+		return
+
 	var time_scale := _effective_time_scale()
 	_trail.speed_scale = time_scale
 	_sparks.speed_scale = time_scale
@@ -84,6 +101,44 @@ func _physics_process(delta: float) -> void:
 		return
 
 	global_position = next_position
+	_broadcast_network_state()
+
+
+func _broadcast_network_state() -> void:
+	if NetworkSession.is_active() and multiplayer.is_server():
+		_receive_network_state.rpc(
+			global_position,
+			Quaternion(global_basis.orthonormalized()),
+			_velocity,
+			_ignited,
+		)
+
+
+@rpc("authority", "unreliable_ordered")
+func _receive_network_state(
+	net_position: Vector3,
+	net_rotation: Quaternion,
+	net_velocity: Vector3,
+	net_ignited: bool,
+) -> void:
+	if authoritative_simulation:
+		return
+	_net_position = net_position
+	_net_rotation = net_rotation
+	_net_velocity = net_velocity
+	_has_net_state = true
+	_trail.emitting = net_ignited
+	_sparks.emitting = net_ignited
+
+
+func _interpolate_network_state(delta: float) -> void:
+	if not _has_net_state:
+		return
+	_net_position += _net_velocity * delta
+	var t := 1.0 - exp(-25.0 * delta)
+	global_position = global_position.lerp(_net_position, t)
+	var current := Quaternion(global_basis.orthonormalized())
+	global_basis = Basis(current.slerp(_net_rotation, t))
 
 
 func _ignite() -> void:
@@ -136,10 +191,23 @@ func _face_direction(direction: Vector3) -> void:
 func _explode(position: Vector3) -> void:
 	if _exploded:
 		return
+	if NetworkSession.is_active() and multiplayer.is_server():
+		_explode_replica.rpc(position, _effective_time_scale())
+	_finish_explosion(position, _effective_time_scale())
+
+
+@rpc("authority", "reliable")
+func _explode_replica(position: Vector3, time_scale: float) -> void:
+	_finish_explosion(position, time_scale)
+
+
+func _finish_explosion(position: Vector3, time_scale: float) -> void:
+	if _exploded:
+		return
 	_exploded = true
 	if explosion_scene:
 		var explosion = explosion_scene.instantiate()
-		explosion.time_scale = _effective_time_scale()
+		explosion.time_scale = time_scale
 		var explosion_parent: Node = get_tree().current_scene
 		if explosion_parent == null:
 			explosion_parent = get_tree().root

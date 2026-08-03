@@ -34,6 +34,7 @@ const SPAWN_RING := 35.0
 @export var join_address: String = "127.0.0.1"
 
 @onready var _players: Node3D = $Players
+@onready var _projectiles: Node3D = $Projectiles
 @onready var _spawner: MultiplayerSpawner = $HelicopterSpawner
 @onready var _connect_panel: Control = $HUD/ConnectPanel
 
@@ -132,9 +133,16 @@ func _clear_players() -> void:
 	_next_spawn_index = 0
 
 
+func _clear_projectiles() -> void:
+	for child in _projectiles.get_children():
+		_projectiles.remove_child(child)
+		child.queue_free()
+
+
 func _on_session_started(as_server: bool) -> void:
 	# Whatever was flying belonged to the previous (offline) session.
 	_clear_players()
+	_clear_projectiles()
 	if as_server:
 		spawn_helicopter(multiplayer.get_unique_id())
 	# A client spawns nothing: every aircraft, including its own, arrives from
@@ -143,6 +151,7 @@ func _on_session_started(as_server: bool) -> void:
 
 func _on_session_ended() -> void:
 	_clear_players()
+	_clear_projectiles()
 	_populate_offline()
 
 
