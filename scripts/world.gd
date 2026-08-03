@@ -35,6 +35,7 @@ const SPAWN_RING := 35.0
 
 @onready var _players: Node3D = $Players
 @onready var _spawner: MultiplayerSpawner = $HelicopterSpawner
+@onready var _connect_panel: Control = $HUD/ConnectPanel
 
 ## Cached only as an optimisation. Always go through _local_heli(), which
 ## re-resolves if the aircraft was despawned or ownership changed.
@@ -45,6 +46,8 @@ var _next_spawn_index := 0
 
 
 func _ready() -> void:
+	# The connect panel tells us when it opens so we can release the mouse.
+	add_to_group(&"session_ui_listeners")
 	_build_obstacles()
 	# The spawner runs this on *every* peer to reconstruct the aircraft locally;
 	# only the server ever calls spawn().
@@ -195,9 +198,20 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			NetworkSession.join(join_address)
 		KEY_F3:
 			NetworkSession.leave()
+		KEY_F4:
+			_connect_panel.toggle()
 		_:
 			return
 	get_viewport().set_input_as_handled()
+
+
+## Called by the connect panel. Flying needs the mouse captured; typing an
+## address needs it back.
+func on_session_ui_toggled(open: bool) -> void:
+	if open:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		_capture_mouse()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -213,11 +227,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			_capture_mouse()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed:
-		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		# Clicking the world re-captures, but not while the panel wants the
+		# cursor for typing.
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not _connect_panel.visible:
 			_capture_mouse()
 
 
 func _capture_mouse() -> void:
+	if _connect_panel.visible:
+		return
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	var heli := _local_heli()
 	if heli == null:

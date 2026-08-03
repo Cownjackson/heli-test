@@ -32,6 +32,7 @@ godot --headless --path <project-dir> --import
 | `R` | Reset / respawn |
 | `Esc` | Release mouse capture |
 | `F1` / `F2` / `F3` | Host / join / leave a LAN session |
+| `F4` | Open the session panel (type an address, see your own) |
 
 Two things surprise new pilots, both deliberate:
 
@@ -49,18 +50,25 @@ Two peers can connect and see each other's helicopters spawn and despawn.
 **Remote aircraft do not move yet** — input and state replication are the next
 step, so a remote helicopter currently sits at its spawn point.
 
-One machine presses `F1` to host on port 27015. `F3` leaves and drops back to the
-offline session.
+Press `F4` for the session panel. The host presses **Host**; the panel then lists
+that machine's own addresses and marks which is likely the right one, so there is
+no need to run `ipconfig`. The other player types that address and presses
+**Join**. The address is remembered between runs.
 
-The joining machine **must set `join_address` on the World node to the host's LAN
-IP first** — it defaults to `127.0.0.1`, which only reaches another instance on
-the same computer. Get the host's address with `ipconfig` (Windows) or `ip addr`
-(Linux); it usually looks like `192.168.x.x`. Then press `F2`.
+`F1` / `F2` / `F3` are shortcuts for host / join / leave without opening the
+panel; `F2` uses the `join_address` export on the World node.
 
-The HUD shows the address it is connecting to, so if a join hangs, read that line
-first — connecting to `127.0.0.1` from the wrong machine is the easiest mistake
-to make here. The host's firewall must also allow inbound UDP on the port;
-Windows prompts the first time and quietly blocks it if that prompt is dismissed.
+Two things that will stop a join working:
+
+- **The wrong address.** `127.0.0.1` only ever reaches the same computer, and a
+  machine usually has several addresses — `169.254.x.x` is link-local and never
+  works, and on Windows `172.x` is usually WSL or Docker rather than your LAN.
+  The panel annotates these.
+- **The host's firewall.** Inbound UDP on port 27015 must be allowed. Windows
+  asks once on first host and silently blocks it if the prompt is dismissed.
+
+The HUD shows the address it is connecting to, so read that line first when a
+join hangs.
 
 From the command line, useful for testing two instances on one machine:
 
@@ -90,6 +98,7 @@ scripts/
   heli_projectile.gd    Projectile flight and collision
   heli_explosion.gd     Effect lifetime
   network_session.gd    Autoload: owns the ENet peer and session lifecycle
+  connect_panel.gd      In-game host/join UI (F4)
   debug_hud.gd          Tuning readout — throwaway, delete when feel is settled
   world.gd              Test level setup
 docs/
