@@ -32,9 +32,18 @@ extends RigidBody3D
 ## Emitted on the machine that owns this helicopter when it is written off.
 signal crashed
 
+## Every helicopter joins this group so presentation code (HUD, world input)
+## can find the locally-owned one instead of hard-coding a scene path. Once
+## aircraft are spawned per peer there is no fixed path to point at.
+const GROUP := &"helicopters"
+
 @export_group("Multiplayer")
 ## Peer that owns this helicopter. 1 is the host / the only player offline.
 @export var peer_id: int = 1
+## Lets the test world contain real remote-style helicopter instances before a
+## MultiplayerPeer exists. Ignored once multiplayer is active, when peer_id is
+## the sole authority source.
+@export var offline_local_control: bool = true
 
 @export_group("Physics")
 ## Ours, not the engine's — gravity_scale is zeroed and we apply this instead,
@@ -106,18 +115,55 @@ signal crashed
 ## speed, so this reads directly as "you die above this many m/s".
 @export var crash_impact_speed: float = 6.5
 
+@export_group("Damage")
+## Health pool. A missile removes `HeliProjectile.damage` (20 by default), so
+## five connecting missiles write the airframe off.
+@export var max_health: float = 100.0
+## Scales all incoming missile damage on this airframe. **Set this to 0 to test
+## the pure-impulse fork**: the health pool stops mattering entirely and the
+## only way to kill anyone is to blast them into the ground.
+@export_range(0.0, 4.0, 0.05) var damage_multiplier: float = 1.0
+## Scales all incoming blast impulse. Set to 0 to test the pure-health-pool
+## fork, where hits are bookkeeping and never disturb the target's flying.
+@export_range(0.0, 4.0, 0.05) var impulse_multiplier: float = 1.0
+## Damage and blast multiplier for a second missile from the *same volley*, so
+## landing both barrels beats landing one twice. 1.0 turns the bonus off.
+@export_range(1.0, 3.0, 0.05) var double_hit_bonus: float = 1.5
+## How long after the first missile of a volley a second still counts as part of
+## it. Both barrels leave together, so this only has to cover the spread in
+## their flight times, not the fire cooldown.
+@export var double_hit_window: float = 1.5
+
 @export_group("Rotors")
 @export var main_rotor_rpm: float = 320.0
 @export var tail_rotor_rpm: float = 1100.0
 
+@export_group("Replication")
+## How fast a replicated aircraft converges on the state the server sent, 1/s.
+## Higher is more accurate and more jittery; lower is smoother and laggier.
+@export var interpolation_rate: float = 20.0
+## Beyond this many metres of disagreement, snap instead of interpolating. Stops
+## a respawn or a long stall being rendered as a glide across the map.
+@export var teleport_distance: float = 25.0
+
 @onready var input_source: LocalInputSource = $InputSource
+@onready var weapons = $Weapons
 @onready var _main_rotor: Node3D = $Model/MainRotor
 @onready var _tail_rotor: Node3D = $Model/TailRotor
+@onready var _camera: Camera3D = $CameraRig/SpringArm3D/Camera3D
 
 ## Current pilot intent. Overwritten each tick by whoever has authority.
 var control := HeliInput.new()
 
 var is_crashed: bool = false
+## Remaining airframe health. Only ever changed on the server; clients receive
+## it with the rest of the replicated state so they can draw it.
+var health: float = 100.0
+
+## Which volley last connected, and when. Server-side only, and the whole reason
+## a same-volley double hit can be told apart from two separate shots.
+var _last_volley_key := ""
+var _last_volley_time := -1000.0
 
 var _spawn_transform := Transform3D.IDENTITY
 var _reset_queued := false
@@ -128,8 +174,25 @@ var _inertia := Vector3.ONE
 var _flip_completion_axis := Vector3.ZERO
 var _flip_reversal_time := 0.0
 
+## Last state the server sent for this aircraft, and the velocity we dead-reckon
+## it forward with between packets. Only meaningful on a client.
+var _net_position := Vector3.ZERO
+var _net_rotation := Quaternion.IDENTITY
+var _net_velocity := Vector3.ZERO
+var _has_net_state := false
+
 
 func _ready() -> void:
+	add_to_group(GROUP)
+	# Aircraft are spawned continuously, so combat tuning has to be picked up at
+	# birth as well as pushed to what already exists, or the next respawn would
+	# quietly undo every slider.
+	var tree := get_tree()
+	max_health = DeveloperSettings.tuned(tree, &"max_health", max_health)
+	damage_multiplier = DeveloperSettings.tuned(tree, &"damage_multiplier", damage_multiplier)
+	impulse_multiplier = DeveloperSettings.tuned(tree, &"impulse_multiplier", impulse_multiplier)
+	double_hit_bonus = DeveloperSettings.tuned(tree, &"double_hit_bonus", double_hit_bonus)
+	health = max_health
 	_spawn_transform = global_transform
 	_inertia = _compute_inertia()
 	# The flight model applies its own gravity, so the engine must not add any.
@@ -145,17 +208,231 @@ func _ready() -> void:
 	# Needed for get_contact_count() / get_contact_impulse() to report anything.
 	contact_monitor = true
 	max_contacts_reported = 4
-	input_source.enabled = is_local_authority()
+	# Replicated aircraft are moved by writing their transform, which means the
+	# body must not also be integrating. Invariant: never fight the engine.
+	freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	var locally_owned := is_local_authority()
+	input_source.enabled = locally_owned
+	_camera.current = locally_owned
 	# Start on the lever where we'd hover, so spawning isn't an instant fall.
 	input_source.set_throttle(hover_throttle())
 	control.throttle = hover_throttle()
+	control.aim_point = weapons.forward_aim_point()
+	_net_position = global_position
+	_net_rotation = Quaternion(global_basis.orthonormalized())
+	_update_simulation_mode()
 
 
 ## The one gate that decides who is allowed to generate input for this machine.
 func is_local_authority() -> bool:
-	if not multiplayer.has_multiplayer_peer():
-		return true
+	if not is_networked():
+		return offline_local_control
 	return peer_id == multiplayer.get_unique_id()
+
+
+## True only when a *real* peer is connected.
+##
+## `multiplayer.has_multiplayer_peer()` is not usable for this: Godot 4 installs
+## an `OfflineMultiplayerPeer` by default, so it returns true even with no
+## networking whatsoever, and `get_unique_id()` returns 1. That silently made
+## `offline_local_control` dead code — every helicopter took the peer_id branch
+## and the flag was never read.
+func is_networked() -> bool:
+	# `Node.multiplayer` resolves through the scene tree and is null once the
+	# node has been detached, so a despawning helicopter would crash here rather
+	# than answer. Detached aircraft belong to no session.
+	if not is_inside_tree():
+		return false
+	var peer := multiplayer.multiplayer_peer
+	if peer == null or peer is OfflineMultiplayerPeer:
+		return false
+	# A peer that is still handshaking reports a provisional unique id that
+	# matches no aircraft, so treating it as networked silently disowns every
+	# helicopter until the connection resolves — losing the HUD and all control.
+	# Until we are actually connected, this machine is still offline.
+	return peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
+
+
+## False once this aircraft is on its way out.
+##
+## `is_instance_valid()` is not enough on its own: `queue_free()` defers the
+## actual free to the end of the frame, so a despawned helicopter stays "valid",
+## stays in its group, and — if it was also reparented out — has no `multiplayer`
+## to answer questions with. Anything caching a `Helicopter` must check this.
+func is_live() -> bool:
+	return is_inside_tree() and not is_queued_for_deletion()
+
+
+## The helicopter this machine is flying, or null before one is spawned.
+##
+## Presentation code must resolve its target this way rather than through a
+## fixed NodePath, because helicopters are spawned per peer and the local one is
+## not at a predictable place in the tree.
+static func find_local(tree: SceneTree) -> Helicopter:
+	for node in tree.get_nodes_in_group(GROUP):
+		var heli := node as Helicopter
+		# Group membership outlives despawning by a frame, so skip the corpses.
+		if heli != null and heli.is_live() and heli.is_local_authority():
+			return heli
+	return null
+
+
+## Whether this machine runs the flight model for this aircraft.
+##
+## Server-authoritative: the host simulates every helicopter, and clients
+## simulate none — not even their own. That is the deliberate consequence of
+## choosing option A for the LAN build. Without local prediction a client's own
+## aircraft costs one round trip of input delay, which is under a millisecond on
+## a switch and is what buys us not needing reconciliation at all.
+func is_simulated() -> bool:
+	return not is_networked() or multiplayer.is_server()
+
+
+## Velocity for anything that needs to *display* motion — HUD, camera lead.
+##
+## A replicated aircraft is frozen, so `linear_velocity` is meaningless on a
+## client, including for the local player's own helicopter. Presentation code
+## must ask for this instead.
+func current_velocity() -> Vector3:
+	return linear_velocity if is_simulated() else _net_velocity
+
+
+func _update_simulation_mode() -> void:
+	var simulated := is_simulated()
+	if freeze == not simulated:
+		return
+	freeze = not simulated
+	if not simulated:
+		# Adopt the current pose as the interpolation start, or the aircraft
+		# lurches from wherever the last simulated frame left it.
+		_net_position = global_position
+		_net_rotation = Quaternion(global_basis.orthonormalized())
+
+
+func _physics_process(delta: float) -> void:
+	_update_simulation_mode()
+
+	# Input is read on the owning machine whether or not it simulates, because a
+	# client still has to send it. This used to live in _integrate_forces(),
+	# which a frozen body never calls — so a client would poll nothing at all.
+	if is_local_authority():
+		var local_control: HeliInput = input_source.poll(delta)
+		local_control.aim_point = weapons.resolve_local_aim_point()
+		control.copy_from(local_control)
+		if is_networked() and not multiplayer.is_server():
+			_receive_input.rpc_id(1, control.to_array())
+
+	if is_simulated():
+		if is_networked():
+			_broadcast_state()
+	else:
+		_interpolate(delta)
+
+
+## Client -> server. Unreliable because inputs are absolute positions: a dropped
+## packet costs one frame of staleness and the next one heals it completely.
+@rpc("any_peer", "unreliable_ordered")
+func _receive_input(data: PackedFloat32Array) -> void:
+	if not multiplayer.is_server():
+		return
+	# Authority check, not a formality: without it any peer could fly any
+	# aircraft by sending input addressed to it.
+	if multiplayer.get_remote_sender_id() != peer_id:
+		return
+	control.from_array(data)
+
+
+func _broadcast_state() -> void:
+	_receive_state.rpc(
+		global_position,
+		Quaternion(global_basis.orthonormalized()),
+		linear_velocity,
+		control.throttle,
+		is_crashed,
+		health,
+	)
+
+
+## Server -> clients. Also unreliable: state is absolute and fully refreshed
+## every tick, so a lost packet is simply one the interpolator never sees.
+@rpc("authority", "unreliable_ordered")
+func _receive_state(
+	net_position: Vector3,
+	net_rotation: Quaternion,
+	net_velocity: Vector3,
+	net_throttle: float,
+	net_crashed: bool,
+	net_health: float,
+) -> void:
+	_net_position = net_position
+	_net_rotation = net_rotation
+	_net_velocity = net_velocity
+	_has_net_state = true
+	is_crashed = net_crashed
+	# Sent every tick rather than on change, so a client that missed the packet
+	# where a hit landed is corrected by the next one instead of staying wrong.
+	health = net_health
+	# Carries the lever so the HUD gauge and the rotor spin stay honest on a
+	# client, including for the local player's own aircraft.
+	if not is_local_authority():
+		control.throttle = net_throttle
+
+
+func _interpolate(delta: float) -> void:
+	if not _has_net_state:
+		return
+	# Dead reckon between packets. Without this the aircraft moves in visible
+	# steps at the packet rate rather than continuously.
+	_net_position += _net_velocity * delta
+	if global_position.distance_to(_net_position) > teleport_distance:
+		global_position = _net_position
+		global_basis = Basis(_net_rotation)
+		return
+	var t := 1.0 - exp(-interpolation_rate * delta)
+	global_position = global_position.lerp(_net_position, t)
+	var current := Quaternion(global_basis.orthonormalized())
+	global_basis = Basis(current.slerp(_net_rotation, t))
+
+
+## One missile connecting. Server-side only, like every other gameplay decision:
+## clients are told the result through the replicated health and crash flag.
+##
+## The two halves are deliberately independent. `amount` drains a health pool;
+## `impulse` is a blast that throws the aircraft off its line and leaves the
+## pilot to fly out of it. Either can be scaled to zero on the target, which is
+## what makes the two candidate damage models testable side by side instead of
+## one-or-the-other.
+##
+## `offset` is where the hit landed relative to the centre of mass, already
+## scaled by the projectile's spin dial — passing it non-zero is what turns a
+## shove into a tumble, because a hit on the tail boom has leverage a hit on the
+## nose does not.
+func apply_damage(
+	amount: float,
+	impulse: Vector3,
+	offset: Vector3,
+	volley_key: String,
+) -> void:
+	# A wreck absorbs nothing further. Without this the second missile of a
+	# volley could re-kill an aircraft that is already tumbling.
+	if not is_simulated() or is_crashed:
+		return
+
+	var bonus := 1.0
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	if volley_key != "" and volley_key == _last_volley_key \
+			and now - _last_volley_time <= double_hit_window:
+		bonus = double_hit_bonus
+	_last_volley_key = volley_key
+	_last_volley_time = now
+
+	apply_impulse(impulse * impulse_multiplier * bonus, offset)
+
+	health = maxf(0.0, health - amount * damage_multiplier * bonus)
+	if health <= 0.0:
+		is_crashed = true
+		control.clear()
+		crashed.emit()
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
@@ -171,9 +448,6 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if is_crashed or _check_impact(state):
 		state.apply_central_force(Vector3.DOWN * (gravity * mass))
 		return
-
-	if is_local_authority():
-		control.copy_from(input_source.poll(state.step))
 
 	var basis := state.transform.basis.orthonormalized()
 	_update_flip_completion(basis, state.angular_velocity, control, state.step)
@@ -414,15 +688,31 @@ func _process(delta: float) -> void:
 	_tail_rotor.rotate_x(TAU * (tail_rotor_rpm / 60.0) * _rotor_spin * delta)
 
 
+## Respawn. On a client this is a request: the server owns the transform, so
+## resetting locally would just be interpolated straight back to where we were.
+@rpc("any_peer", "reliable")
+func _request_reset() -> void:
+	if multiplayer.is_server() and multiplayer.get_remote_sender_id() == peer_id:
+		reset()
+
+
 func reset() -> void:
+	if not is_simulated():
+		if is_local_authority():
+			_request_reset.rpc_id(1)
+		return
 	_reset_queued = true
+	health = max_health
+	_last_volley_key = ""
 	_flip_completion_axis = Vector3.ZERO
 	_flip_reversal_time = 0.0
 	_rotor_spin = 1.0
 	input_source.center_stick()
+	weapons.center_aim()
 	input_source.set_throttle(hover_throttle())
 	control.clear()
 	control.throttle = hover_throttle()
+	control.aim_point = weapons.forward_aim_point()
 
 
 func set_spawn_transform(t: Transform3D) -> void:

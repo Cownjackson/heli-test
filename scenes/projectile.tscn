@@ -1,0 +1,78 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/heli_projectile.gd" id="1_projectile"]
+[ext_resource type="PackedScene" path="res://scenes/explosion.tscn" id="2_explosion"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_projectile"]
+albedo_color = Color(0.34, 0.36, 0.38, 1)
+metallic = 0.55
+roughness = 0.38
+
+[sub_resource type="StandardMaterial3D" id="Mat_effect"]
+shading_mode = 0
+albedo_color = Color(1, 0.72, 0.12, 1)
+emission_enabled = true
+emission = Color(1, 0.32, 0.03, 1)
+emission_energy_multiplier = 6.0
+
+[sub_resource type="CylinderMesh" id="Mesh_tracer"]
+material = SubResource("Mat_projectile")
+top_radius = 0.2
+bottom_radius = 0.2
+height = 0.85
+
+[sub_resource type="ParticleProcessMaterial" id="Particles_trail"]
+particle_flag_disable_z = false
+gravity = Vector3(0, 0, 0)
+scale_min = 0.35
+scale_max = 1.0
+color = Color(1, 0.42, 0.05, 0.72)
+
+[sub_resource type="SphereMesh" id="Mesh_trail"]
+material = SubResource("Mat_effect")
+radius = 0.075
+height = 0.15
+
+[sub_resource type="ParticleProcessMaterial" id="Particles_sparks"]
+direction = Vector3(0, 1, 0)
+spread = 180.0
+gravity = Vector3(0, -7, 0)
+initial_velocity_min = 2.0
+initial_velocity_max = 7.0
+scale_min = 0.25
+scale_max = 0.8
+color = Color(1, 0.62, 0.12, 0.9)
+
+[sub_resource type="SphereMesh" id="Mesh_sparks"]
+material = SubResource("Mat_effect")
+radius = 0.035
+height = 0.07
+
+[node name="Projectile" type="Node3D"]
+script = ExtResource("1_projectile")
+explosion_scene = ExtResource("2_explosion")
+
+[node name="Tracer" type="MeshInstance3D" parent="."]
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Mesh_tracer")
+
+[node name="Trail" type="GPUParticles3D" parent="."]
+emitting = false
+amount = 72
+lifetime = 0.7
+fixed_fps = 60
+visibility_aabb = AABB(-150, -150, -150, 300, 300, 300)
+local_coords = false
+process_material = SubResource("Particles_trail")
+draw_pass_1 = SubResource("Mesh_trail")
+
+[node name="Sparks" type="GPUParticles3D" parent="."]
+emitting = false
+amount = 36
+lifetime = 0.4
+randomness = 0.65
+fixed_fps = 60
+visibility_aabb = AABB(-16, -16, -16, 32, 32, 32)
+local_coords = false
+process_material = SubResource("Particles_sparks")
+draw_pass_1 = SubResource("Mesh_sparks")

@@ -1,0 +1,95 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/heli_explosion.gd" id="1_explosion"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_flash"]
+shading_mode = 0
+albedo_color = Color(1, 0.55, 0.08, 0.92)
+emission_enabled = true
+emission = Color(1, 0.18, 0.01, 1)
+emission_energy_multiplier = 8.0
+
+[sub_resource type="SphereMesh" id="Mesh_flash"]
+material = SubResource("Mat_flash")
+radius = 0.5
+height = 1.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_fire"]
+shading_mode = 0
+albedo_color = Color(1, 0.38, 0.03, 1)
+emission_enabled = true
+emission = Color(1, 0.12, 0.01, 1)
+emission_energy_multiplier = 5.0
+
+[sub_resource type="SphereMesh" id="Mesh_fire"]
+material = SubResource("Mat_fire")
+radius = 0.16
+height = 0.32
+
+[sub_resource type="ParticleProcessMaterial" id="Particles_fire"]
+emission_shape = 1
+emission_sphere_radius = 0.35
+direction = Vector3(0, 1, 0)
+spread = 180.0
+gravity = Vector3(0, -5, 0)
+initial_velocity_min = 8.0
+initial_velocity_max = 23.0
+scale_min = 0.45
+scale_max = 1.5
+color = Color(1, 0.45, 0.05, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_smoke"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.12, 0.13, 0.14, 0.58)
+
+[sub_resource type="SphereMesh" id="Mesh_smoke"]
+material = SubResource("Mat_smoke")
+radius = 0.32
+height = 0.64
+
+[sub_resource type="ParticleProcessMaterial" id="Particles_smoke"]
+emission_shape = 1
+emission_sphere_radius = 0.5
+direction = Vector3(0, 1, 0)
+spread = 180.0
+gravity = Vector3(0, 2.5, 0)
+initial_velocity_min = 2.0
+initial_velocity_max = 8.0
+scale_min = 0.8
+scale_max = 2.8
+color = Color(0.2, 0.21, 0.22, 0.62)
+
+[node name="Explosion" type="Node3D"]
+script = ExtResource("1_explosion")
+
+[node name="Flash" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh_flash")
+
+[node name="Light" type="OmniLight3D" parent="."]
+light_color = Color(1, 0.43, 0.08, 1)
+light_energy = 7.0
+shadow_enabled = true
+omni_range = 14.0
+
+[node name="Fire" type="GPUParticles3D" parent="."]
+emitting = true
+amount = 54
+lifetime = 0.75
+one_shot = true
+explosiveness = 1.0
+randomness = 0.7
+visibility_aabb = AABB(-28, -28, -28, 56, 56, 56)
+process_material = SubResource("Particles_fire")
+draw_pass_1 = SubResource("Mesh_fire")
+
+[node name="Smoke" type="GPUParticles3D" parent="."]
+emitting = true
+amount = 24
+lifetime = 1.45
+one_shot = true
+explosiveness = 1.0
+randomness = 0.8
+visibility_aabb = AABB(-20, -20, -20, 40, 40, 40)
+process_material = SubResource("Particles_smoke")
+draw_pass_1 = SubResource("Mesh_smoke")

@@ -1,8 +1,10 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://scripts/world.gd" id="1_world"]
 [ext_resource type="PackedScene" path="res://scenes/helicopter.tscn" id="2_heli"]
 [ext_resource type="Script" path="res://scripts/debug_hud.gd" id="3_hud"]
+[ext_resource type="Script" path="res://scripts/connect_panel.gd" id="4_connect"]
+[ext_resource type="Script" path="res://scripts/developer_settings.gd" id="5_dev_settings"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
 sky_top_color = Color(0.243137, 0.443137, 0.694118, 1)
@@ -68,6 +70,7 @@ roughness = 0.8
 
 [node name="World" type="Node3D"]
 script = ExtResource("1_world")
+helicopter_scene = ExtResource("2_heli")
 
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
@@ -93,8 +96,12 @@ position = Vector3(0, 0.16, 0)
 mesh = SubResource("Mesh_pad")
 material_override = SubResource("Mat_pad")
 
-[node name="Helicopter" parent="." instance=ExtResource("2_heli")]
-position = Vector3(0, 25, 0)
+[node name="Players" type="Node3D" parent="."]
+
+[node name="Projectiles" type="Node3D" parent="."]
+
+[node name="HelicopterSpawner" type="MultiplayerSpawner" parent="."]
+spawn_path = NodePath("../Players")
 
 [node name="HUD" type="CanvasLayer" parent="."]
 
@@ -103,4 +110,16 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("3_hud")
-heli_path = NodePath("../../Helicopter")
+
+[node name="ConnectPanel" type="Control" parent="HUD"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("4_connect")
+
+[node name="DeveloperSettings" type="PanelContainer" parent="HUD"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+grow_horizontal = 0
+script = ExtResource("5_dev_settings")

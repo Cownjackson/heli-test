@@ -30,6 +30,14 @@ extends Node
 ## identical in every direction rather than bulging along the diagonals.
 @export_range(0.0, 1.0, 0.01) var cyclic_expo: float = 0.75
 
+@export_group("Aim lock")
+## Stick units per second the cyclic drifts back to centre *while the aim lock
+## is held*. 0 = the stick simply freezes where you left it, which is the
+## virtual-cyclic behaviour everywhere else. Raise it if you want holding the
+## lock to also level the aircraft, so the camera settles instead of continuing
+## whatever turn you were already in.
+@export var aim_lock_stick_return: float = 0.0
+
 @export_group("Collective")
 ## How fast W/S drive the collective lever, in lever units per second.
 ## ~1.3 s from closed to fully open.
@@ -39,6 +47,9 @@ var stick := Vector2.ZERO
 ## Absolute lever position, 0..1. Persists between frames — this is the state
 ## the pilot is managing, and the whole point of the absolute-throttle model.
 var throttle: float = 0.0
+## True while the pilot is holding the aim lock. Read by the HUD; the weapon
+## cursor deliberately does not read it, because aiming is what stays working.
+var aim_locked: bool = false
 
 var _mouse_delta := Vector2.ZERO
 var _out := HeliInput.new()
@@ -56,7 +67,17 @@ func poll(delta: float) -> HeliInput:
 	if not enabled:
 		_out.clear()
 		_mouse_delta = Vector2.ZERO
+		aim_locked = false
 		return _out
+
+	# Aiming and flying share one mouse, which is why steering while you line up
+	# a shot is so awkward: every correction to the crosshair is also a cyclic
+	# input. Holding the lock hands the mouse to the weapon cursor alone. The
+	# cyclic is only deaf to the *mouse* — pedals, collective and the arrow keys
+	# all keep working, so you are never actually unable to fly.
+	aim_locked = Input.is_action_pressed(&"aim_lock")
+	if aim_locked:
+		_mouse_delta = Vector2.ZERO
 
 	# Mouse: right = bank right, forward (relative.y < 0) = nose down.
 	var pitch_sign := -1.0 if invert_mouse_pitch else 1.0
@@ -70,8 +91,9 @@ func poll(delta: float) -> HeliInput:
 	stick.x += key_x * key_stick_rate * delta
 	stick.y += key_y * key_stick_rate * delta
 
-	if stick_return > 0.0:
-		stick = stick.move_toward(Vector2.ZERO, stick_return * delta)
+	var return_rate := aim_lock_stick_return if aim_locked else stick_return
+	if return_rate > 0.0:
+		stick = stick.move_toward(Vector2.ZERO, return_rate * delta)
 	stick = stick.limit_length(1.0)
 
 	var lever := Input.get_axis(&"collective_down", &"collective_up")
