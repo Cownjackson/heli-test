@@ -14,6 +14,7 @@ signal ammo_changed(current: int, maximum: int)
 @export var aim_distance: float = 2000.0
 @export var aim_cursor_sensitivity: float = 1.15
 @export var aim_cursor_margin: float = 24.0
+@export_range(0.1, 3.0, 0.05) var projectile_time_scale: float = 1.0
 
 @onready var _heli := get_parent() as Helicopter
 @onready var _muzzles: Array[Marker3D] = [
@@ -28,6 +29,9 @@ var aim_position := Vector2.ZERO
 
 
 func _ready() -> void:
+	add_to_group(&"heli_weapons")
+	if get_tree().has_meta(&"projectile_time_scale"):
+		projectile_time_scale = float(get_tree().get_meta(&"projectile_time_scale"))
 	ammo = max_ammo
 	center_aim()
 	ammo_changed.emit(ammo, max_ammo)
@@ -99,6 +103,14 @@ func center_aim() -> void:
 func move_aim(mouse_delta: Vector2) -> void:
 	aim_position += mouse_delta * aim_cursor_sensitivity
 	_clamp_aim_position()
+
+
+func set_projectile_time_scale(value: float) -> void:
+	projectile_time_scale = clampf(value, 0.1, 3.0)
+
+
+func get_projectile_time_scale() -> float:
+	return projectile_time_scale
 
 
 ## Reprojects the live virtual cursor every physics frame for guided missiles.

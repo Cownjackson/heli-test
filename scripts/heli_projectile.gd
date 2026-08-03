@@ -16,6 +16,7 @@ extends Node3D
 @export var drop_acceleration: float = 10.0
 @export_flags_3d_physics var collision_mask: int = 1
 @export var explosion_scene: PackedScene
+@export_range(0.1, 3.0, 0.05) var fallback_time_scale: float = 1.0
 
 @onready var _trail: GPUParticles3D = $Trail
 @onready var _sparks: GPUParticles3D = $Sparks
@@ -50,20 +51,24 @@ func launch_guided(
 
 
 func _physics_process(delta: float) -> void:
-	_age += delta
+	var time_scale := _effective_time_scale()
+	_trail.speed_scale = time_scale
+	_sparks.speed_scale = time_scale
+	var scaled_delta := delta * time_scale
+	_age += scaled_delta
 	if _age >= lifetime:
 		_explode(global_position)
 		return
 
 	if not _ignited:
-		_ignition_time += delta
-		_velocity += Vector3.DOWN * drop_acceleration * delta
+		_ignition_time += scaled_delta
+		_velocity += Vector3.DOWN * drop_acceleration * scaled_delta
 		if _ignition_time >= ignition_delay:
 			_ignite()
 	else:
-		_steer_toward_cursor(delta)
+		_steer_toward_cursor(scaled_delta)
 
-	var next_position := global_position + _velocity * delta
+	var next_position := global_position + _velocity * scaled_delta
 	var query := PhysicsRayQueryParameters3D.create(global_position, next_position)
 	query.collision_mask = collision_mask
 	query.exclude = _exclude
@@ -116,6 +121,13 @@ func _refresh_guidance_target() -> void:
 		_target_position = _guidance_source.current_aim_point()
 
 
+func _effective_time_scale() -> float:
+	if is_instance_valid(_guidance_source) \
+			and _guidance_source.has_method(&"get_projectile_time_scale"):
+		return float(_guidance_source.get_projectile_time_scale())
+	return fallback_time_scale
+
+
 func _face_direction(direction: Vector3) -> void:
 	if direction.length_squared() > 1e-4 \
 			and absf(direction.dot(Vector3.UP)) < 0.999:
@@ -128,6 +140,7 @@ func _explode(position: Vector3) -> void:
 	_exploded = true
 	if explosion_scene:
 		var explosion = explosion_scene.instantiate()
+		explosion.time_scale = _effective_time_scale()
 		var explosion_parent: Node = get_tree().current_scene
 		if explosion_parent == null:
 			explosion_parent = get_tree().root
