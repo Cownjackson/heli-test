@@ -56,7 +56,7 @@ func _draw() -> void:
 		"",
 		"W/S collective   A/D pedals",
 		"mouse or arrows  cyclic",
-		"LMB twin guns",
+		"LMB twin guns   Alt/RMB aim lock",
 		"R reset   Esc release mouse",
 		"F1 host   F2 join   F3 leave",
 	]
@@ -135,12 +135,17 @@ func _draw_weapon_status(font: Font) -> void:
 
 func _draw_crosshair() -> void:
 	var center: Vector2 = _heli.weapons.aim_position
-	var color := Color(0.95, 0.86, 0.3, 0.8)
+	# The lock is a held, invisible mode: without a tell you cannot see whether
+	# the mouse is currently flying the aircraft or only moving the crosshair.
+	var locked: bool = _heli.input_source.aim_locked
+	var color := Color(0.45, 0.85, 1.0, 0.95) if locked else Color(0.95, 0.86, 0.3, 0.8)
 	draw_arc(center, 8.0, 0.0, TAU, 24, color, 1.5)
 	draw_line(center + Vector2(-15.0, 0.0), center + Vector2(-6.0, 0.0), color, 1.5)
 	draw_line(center + Vector2(6.0, 0.0), center + Vector2(15.0, 0.0), color, 1.5)
 	draw_line(center + Vector2(0.0, -15.0), center + Vector2(0.0, -6.0), color, 1.5)
 	draw_line(center + Vector2(0.0, 6.0), center + Vector2(0.0, 15.0), color, 1.5)
+	if locked:
+		draw_arc(center, 13.0, 0.0, TAU, 32, Color(color, 0.35), 1.0)
 
 
 ## Collective lever with a tick at the hover setting. With an absolute lever

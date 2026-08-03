@@ -18,7 +18,23 @@ maintains its own screen-space cursor, `aim_position`, moved by raw mouse motion
 and clamped to the viewport with a margin. The HUD draws it as a crosshair.
 
 Note that the same mouse motion also drives the cyclic. Moving the mouse aims
-*and* flies simultaneously; they are not modal.
+*and* flies simultaneously — every correction to the crosshair is also a cyclic
+input, which is what makes lining up a guided shot while manoeuvring so awkward.
+
+**Aim lock** (hold `Alt`, or right mouse button) is the escape hatch. While it
+is held the mouse belongs to the weapon cursor alone and the cyclic stops
+answering it. Deliberately *only* the mouse is taken away: pedals, collective
+and the arrow-key cyclic keep working, so the pilot is never unable to fly. The
+crosshair turns blue and gains an outer ring, because a held mode with no tell
+is indistinguishable from a broken mouse.
+
+The lock freezes the stick where it was rather than centring it, which matches
+the virtual cyclic everywhere else — but it means locking mid-bank leaves the
+aircraft turning and the camera still swinging. `aim_lock_stick_return` on
+`LocalInputSource` (default 0, i.e. pure freeze) makes the stick drift back to
+centre while the lock is held, which levels the aircraft and settles the camera
+at the cost of losing the manoeuvre you were in. Which of those is right is a
+feel question, not a correctness one.
 
 The locally-owned helicopter projects that cursor through its active camera to
 a point `aim_distance` (2000 m) away, then stores the world point in

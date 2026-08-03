@@ -29,6 +29,7 @@ godot --headless --path <project-dir> --import
 | Mouse, or arrow keys | Cyclic (tilt) |
 | `A` / `D` (or `Q` / `E`) | Tail rotor pedals (yaw) |
 | Left mouse button | Fire |
+| Hold `Alt` (or right mouse button) | Aim lock — mouse moves the crosshair only |
 | `R` | Reset / respawn |
 | `Esc` | Release mouse capture |
 | `F1` / `F2` / `F3` | Host / join / leave a LAN session |
@@ -43,6 +44,10 @@ Two things surprise new pilots, both deliberate:
 - **The cyclic holds its position.** The mouse drives a virtual stick that stays
   where you left it, like a real cyclic. If the aircraft is drifting, check the
   stick box on the HUD before assuming the physics is wrong.
+- **One mouse flies and aims at the same time.** Hold aim lock to take the
+  cyclic off the mouse while you steer a missile onto a target; the crosshair
+  turns blue while it is held. Pedals, collective and the arrow-key cyclic still
+  work, so you can fly through the lock.
 
 ## Multiplayer (LAN, in progress)
 
