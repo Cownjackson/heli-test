@@ -44,7 +44,11 @@ func _physics_process(delta: float) -> void:
 	global_rotation = Vector3(0.0, _heading, 0.0)
 
 	var velocity := Vector3.ZERO
-	if _target is RigidBody3D:
+	if _target is Helicopter:
+		# Frozen on clients, so ask for the displayable velocity rather than the
+		# body's, or the camera stops leading as soon as you join a session.
+		velocity = (_target as Helicopter).current_velocity()
+	elif _target is RigidBody3D:
 		velocity = (_target as RigidBody3D).linear_velocity
 	var aim := _target.global_position + Vector3.UP * look_height + velocity * velocity_lead
 	_look_at = _look_at.lerp(aim, pos_t)

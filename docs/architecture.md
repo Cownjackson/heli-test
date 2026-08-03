@@ -93,6 +93,50 @@ custom integrator unchanged.
 
 ---
 
+## The session layer
+
+`network_session.gd` is autoloaded as `NetworkSession`. It owns the ENet peer
+and answers exactly one question — who is connected — through four signals:
+`session_started(as_server)`, `session_ended`, `peer_joined(id)`,
+`peer_left(id)`.
+
+It deliberately knows nothing about helicopters. `world.gd` listens and does all
+the spawning, which keeps the transport independently testable and means
+gameplay code never touches `multiplayer.multiplayer_peer` directly.
+
+Two details that are easy to get wrong:
+
+- **`session_started` fires when the session is genuinely up**, not when
+  `join()` returns. `create_client()` returning `OK` only means a socket was
+  created; whether anyone is listening is unknown until `connected_to_server` or
+  `connection_failed` arrives. That gap is the `is_connecting` state.
+- **`apply_command_line()` is called by the world, not from `_ready()`.**
+  Autoloads are ready before the main scene, so hosting inside `_ready()` would
+  emit `session_started` before anything was connected to hear it.
+
+### Spawning
+
+`World/HelicopterSpawner` is a `MultiplayerSpawner` pointed at `World/Players`,
+using a custom spawn function rather than a spawnable-scene list. Only the
+server calls `spawn()`; the spawn function itself runs on *every* peer to
+reconstruct the aircraft locally.
+
+That imposes two rules on `_build_helicopter()`. It must not parent the node —
+the spawner does that, and doing it twice reparents. And it must produce an
+identical result from identical payload data on every peer, which is why the
+spawn slot travels in the payload instead of being read from a local child
+count.
+
+Offline there are no peers, so `spawn_helicopter()` parents directly instead.
+The test target only exists in that offline path — a networked session spawns
+real players and nothing else.
+
+Verified with two headless instances over loopback: the client sees both
+aircraft and holds authority over only its own, and the host spawns and
+despawns the client's helicopter on join and disconnect.
+
+---
+
 ## The invariants
 
 These are the things most likely to be broken by a well-intentioned change.
@@ -140,19 +184,76 @@ lever you park rather than a rate you hold.
 One function decides who may fill `control`. Local input now, the network
 later. Do not add a second path that writes to `control`.
 
-> **Known bug.** `offline_local_control` does not work. Godot 4 installs an
-> `OfflineMultiplayerPeer` by default, so `multiplayer.has_multiplayer_peer()`
-> returns `true` even with no networking, and `is_local_authority()` always
-> takes the `peer_id == get_unique_id()` branch. Offline, `get_unique_id()`
-> returns 1.
->
-> The result is that `offline_local_control` is dead code, and the target
-> helicopter in `world.tscn` behaves correctly only because its `peer_id` is 2.
-> Anything relying on the flag will silently get the wrong answer. Either fix
-> the check to treat `OfflineMultiplayerPeer` as "no peer", or delete the flag
-> and drive everything from `peer_id`.
+**Never test for a network with `multiplayer.has_multiplayer_peer()`.** Godot 4
+installs an `OfflineMultiplayerPeer` by default, so it returns `true` with no
+networking whatsoever, and `get_unique_id()` returns 1. This previously made
+`offline_local_control` dead code — every helicopter took the `peer_id` branch
+and the flag was never read, which went unnoticed because the only two aircraft
+in the scene happened to give the same answer either way.
 
-### 4. Remote helicopters must not simulate locally
+`is_networked()` is the correct test; it excludes `OfflineMultiplayerPeer`
+explicitly. Verified with a helicopter at `peer_id = 5` and
+`offline_local_control = true`: it now reports local authority, where the old
+check answered `false`.
+
+### 4. Nothing may hold a fixed path to a helicopter
+
+Aircraft are spawned per peer into `World/Players`, so there is no node called
+`Helicopter` and no way to know at author time which one belongs to this
+machine. Presentation code resolves its target through
+`Helicopter.find_local(get_tree())`, which scans the `helicopters` group for the
+one holding local authority.
+
+Resolve it *lazily and repeatedly*, not once in `_ready()` — the local aircraft
+may not exist for the first few frames, and will be replaced outright when
+respawning is added. Both `debug_hud.gd` and `world.gd` cache the result and
+re-resolve when it goes stale; copy that pattern rather than storing a
+reference.
+
+Ownership must also be assigned **before** the node enters the tree.
+`Helicopter._ready()` reads `peer_id` to enable its input source and to decide
+which camera becomes `current`, and neither is cleanly reversible afterwards.
+
+### Replication
+
+Server-authoritative, as option A requires. The host simulates **every**
+helicopter; clients simulate **none** — not even their own. A client's aircraft
+is frozen and interpolated exactly like everyone else's.
+
+That is the deliberate cost of skipping prediction: your own helicopter answers
+one round trip late. On a switch that is well under a millisecond and is the
+whole reason we do not need reconciliation yet.
+
+Two traffic directions, both **unreliable**, and for the same reason: every
+message carries absolute state, never a delta, so a dropped packet costs one
+frame of staleness and the next one heals it completely.
+
+- **Client → server**, `_receive_input`: the four `HeliInput` floats. The server
+  checks `get_remote_sender_id() == peer_id` before accepting. That check is
+  load-bearing, not ceremony — without it any peer could fly any aircraft.
+- **Server → clients**, `_receive_state`: position, rotation, velocity, throttle
+  and crashed flag.
+
+Throttle rides along so a client's HUD lever and rotor spin stay honest. It is
+*not* applied to the local player's own aircraft, so their gauge still responds
+to their own input immediately rather than a round trip later.
+
+Interpolation dead-reckons position by the last known velocity between packets,
+then converges at `interpolation_rate`. Without the dead reckoning, motion
+arrives in visible steps at the packet rate. Disagreements beyond
+`teleport_distance` snap instead, so a respawn is not rendered as a glide across
+the map.
+
+Two consequences worth knowing:
+
+- **Input is polled in `_physics_process()`, not `_integrate_forces()`.** A
+  frozen body never runs `_integrate_forces`, so a client would otherwise poll
+  no input at all and have nothing to send.
+- **`linear_velocity` is meaningless on a client.** Presentation code must call
+  `current_velocity()`, which returns the replicated velocity when the body is
+  frozen. The HUD and the chase camera both do.
+
+### 5. Remote helicopters must not simulate locally
 
 When networking goes in, remote aircraft need `freeze = true` and pure
 interpolation. Writing a transform onto a live `RigidBody3D` every frame means

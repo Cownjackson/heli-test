@@ -3,8 +3,6 @@ extends Control
 ## Throwaway readout for tuning feel: airspeed, altitude, attitude, and where
 ## the virtual cyclic actually is. Delete once the flight model is settled.
 
-@export var heli_path: NodePath
-
 const STICK_BOX := 110.0
 const MARGIN := 16.0
 
@@ -12,7 +10,6 @@ var _heli: Helicopter
 
 
 func _ready() -> void:
-	_heli = get_node_or_null(heli_path) as Helicopter
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
@@ -20,14 +17,28 @@ func _process(_delta: float) -> void:
 	queue_redraw()
 
 
+## Helicopters are spawned, so there is no path to point at and the local one
+## may not exist yet on the first frames. Re-resolve whenever the cached one has
+## gone away or stopped being ours.
+func _resolve_heli() -> Helicopter:
+	if not is_instance_valid(_heli) or not _heli.is_live() or not _heli.is_local_authority():
+		_heli = Helicopter.find_local(get_tree())
+	return _heli
+
+
 func _draw() -> void:
-	if not _heli:
+	var font := ThemeDB.fallback_font
+	if _resolve_heli() == null:
+		# Never go blank. A HUD that vanishes tells the player nothing; if there
+		# is no aircraft to fly, the session state is exactly what they need.
+		_draw_no_aircraft(font)
 		return
 
-	var font := ThemeDB.fallback_font
 	var font_size := 15
 	var color := Color(0.85, 0.95, 0.85)
-	var velocity := _heli.linear_velocity
+	# Not linear_velocity: a replicated aircraft is frozen, so on a client that
+	# reads zero even for the helicopter you are flying.
+	var velocity := _heli.current_velocity()
 	var horizontal := Vector2(velocity.x, velocity.z).length()
 	var euler := _heli.global_basis.get_euler(EULER_ORDER_YXZ)
 
@@ -40,10 +51,14 @@ func _draw() -> void:
 		"tilt     %5.1f deg" % tilt,
 		"throttle %4.0f %%   (hover %.0f %%)" % [_heli.control.throttle * 100.0, _heli.hover_throttle() * 100.0],
 		"",
+		"session  %s" % NetworkSession.status_text,
+		"players  %d" % get_tree().get_nodes_in_group(Helicopter.GROUP).size(),
+		"",
 		"W/S collective   A/D pedals",
 		"mouse or arrows  cyclic",
 		"LMB twin guns",
 		"R reset   Esc release mouse",
+		"F1 host   F2 join   F3 leave",
 	]
 	var y := MARGIN + font_size
 	for line: String in lines:
@@ -60,6 +75,35 @@ func _draw() -> void:
 	_draw_lever(Vector2(stick_center.x + STICK_BOX * 0.5 + 26.0, stick_center.y))
 	_draw_weapon_status(font)
 	_draw_crosshair()
+
+
+## Shown whenever this machine has no aircraft it is allowed to fly. That is
+## normal for a moment after joining, and a fault if it persists — so say which.
+func _draw_no_aircraft(font: Font) -> void:
+	var total := get_tree().get_nodes_in_group(Helicopter.GROUP).size()
+	var lines := [
+		"NO AIRCRAFT",
+		"",
+		"session  %s" % NetworkSession.status_text,
+		"peer id  %s" % (str(multiplayer.get_unique_id()) if NetworkSession.is_active() else "-"),
+		"helicopters in world  %d" % total,
+	]
+	if NetworkSession.is_active() and not NetworkSession.is_server:
+		lines.append("")
+		if total == 0:
+			lines.append("Connected, but the host has sent no aircraft.")
+			lines.append("Check both machines run the same commit and")
+			lines.append("the same Godot version.")
+		else:
+			lines.append("Aircraft present but none owned by this peer.")
+	lines.append("")
+	lines.append("F3 leave and return to single player")
+
+	var y := 120.0
+	for line: String in lines:
+		draw_string(font, Vector2(MARGIN + 8.0, y), line,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.95, 0.6, 0.4))
+		y += 24.0
 
 
 ## Ammo lives apart from the tuning readout so it remains readable at a glance

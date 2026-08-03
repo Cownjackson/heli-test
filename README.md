@@ -31,6 +31,8 @@ godot --headless --path <project-dir> --import
 | Left mouse button | Fire |
 | `R` | Reset / respawn |
 | `Esc` | Release mouse capture |
+| `F1` / `F2` / `F3` | Host / join / leave a LAN session |
+| `F4` | Open the session panel (type an address, see your own) |
 
 Two things surprise new pilots, both deliberate:
 
@@ -42,11 +44,50 @@ Two things surprise new pilots, both deliberate:
   where you left it, like a real cyclic. If the aircraft is drifting, check the
   stick box on the HUD before assuming the physics is wrong.
 
+## Multiplayer (LAN, in progress)
+
+Two peers can fly together. The host simulates every aircraft; clients send
+input and render replicated state. There is no prediction — your own helicopter
+answers one round trip late, which is imperceptible on a LAN and is why no
+reconciliation is needed. Weapons are **not** replicated yet: projectiles are
+local to whoever fired them.
+
+Press `F4` for the session panel. The host presses **Host**; the panel then lists
+that machine's own addresses and marks which is likely the right one, so there is
+no need to run `ipconfig`. The other player types that address and presses
+**Join**. The address is remembered between runs.
+
+`F1` / `F2` / `F3` are shortcuts for host / join / leave without opening the
+panel; `F2` uses the `join_address` export on the World node.
+
+Two things that will stop a join working:
+
+- **The wrong address.** `127.0.0.1` only ever reaches the same computer, and a
+  machine usually has several addresses — `169.254.x.x` is link-local and never
+  works, and on Windows `172.x` is usually WSL or Docker rather than your LAN.
+  The panel annotates these.
+- **The host's firewall.** Inbound UDP on port 27015 must be allowed. Windows
+  asks once on first host and silently blocks it if the prompt is dismissed.
+
+The HUD shows the address it is connecting to, so read that line first when a
+join hangs.
+
+From the command line, useful for testing two instances on one machine:
+
+```
+godot --path <project-dir> -- --host
+godot --path <project-dir> -- --join=192.168.1.42
+```
+
+Note the bare `--`: everything after it is passed to the game rather than to the
+engine. `--join` defaults to `127.0.0.1` if no address is given.
+
 ## Repository layout
 
 ```
 scenes/
-  world.tscn        Test level: ground, scattered obstacles, two helicopters
+  world.tscn        Test level: ground, obstacles, and an empty Players node
+                    that helicopters are spawned into at runtime
   helicopter.tscn   The aircraft — body, model, input, weapons, camera rig
   projectile.tscn   Guided projectile fired by the guns
   explosion.tscn    Impact effect
@@ -58,6 +99,8 @@ scripts/
   heli_weapons.gd       Aiming, firing, ammo
   heli_projectile.gd    Projectile flight and collision
   heli_explosion.gd     Effect lifetime
+  network_session.gd    Autoload: owns the ENet peer and session lifecycle
+  connect_panel.gd      In-game host/join UI (F4)
   debug_hud.gd          Tuning readout — throwaway, delete when feel is settled
   world.gd              Test level setup
 docs/
