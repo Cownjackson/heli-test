@@ -19,6 +19,10 @@ var yaw: float = 0.0
 ## than up/down deltas also means a dropped packet can't leave a client and the
 ## server permanently disagreeing about how much power is in.
 var throttle: float = 0.0
+## Resolved world-space point under the weapon cursor. The owning player uses
+## its camera to produce this value; remote machines consume the value directly
+## and never try to reconstruct another player's camera.
+var aim_point := Vector3.ZERO
 
 
 func clear() -> void:
@@ -26,6 +30,7 @@ func clear() -> void:
 	roll = 0.0
 	yaw = 0.0
 	throttle = 0.0
+	aim_point = Vector3.ZERO
 
 
 func copy_from(other: HeliInput) -> void:
@@ -33,17 +38,27 @@ func copy_from(other: HeliInput) -> void:
 	roll = other.roll
 	yaw = other.yaw
 	throttle = other.throttle
+	aim_point = other.aim_point
 
 
 ## Compact wire format. Cheap enough to send every physics tick.
 func to_array() -> PackedFloat32Array:
-	return PackedFloat32Array([pitch, roll, yaw, throttle])
+	return PackedFloat32Array([
+		pitch,
+		roll,
+		yaw,
+		throttle,
+		aim_point.x,
+		aim_point.y,
+		aim_point.z,
+	])
 
 
 func from_array(a: PackedFloat32Array) -> void:
-	if a.size() != 4:
+	if a.size() != 7:
 		return
 	pitch = a[0]
 	roll = a[1]
 	yaw = a[2]
 	throttle = a[3]
+	aim_point = Vector3(a[4], a[5], a[6])

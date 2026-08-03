@@ -181,6 +181,7 @@ func _ready() -> void:
 	# Start on the lever where we'd hover, so spawning isn't an instant fall.
 	input_source.set_throttle(hover_throttle())
 	control.throttle = hover_throttle()
+	control.aim_point = weapons.forward_aim_point()
 	_net_position = global_position
 	_net_rotation = Quaternion(global_basis.orthonormalized())
 	_update_simulation_mode()
@@ -279,7 +280,9 @@ func _physics_process(delta: float) -> void:
 	# client still has to send it. This used to live in _integrate_forces(),
 	# which a frozen body never calls — so a client would poll nothing at all.
 	if is_local_authority():
-		control.copy_from(input_source.poll(delta))
+		var local_control: HeliInput = input_source.poll(delta)
+		local_control.aim_point = weapons.resolve_local_aim_point()
+		control.copy_from(local_control)
 		if is_networked() and not multiplayer.is_server():
 			_receive_input.rpc_id(1, control.to_array())
 
@@ -625,6 +628,7 @@ func reset() -> void:
 	input_source.set_throttle(hover_throttle())
 	control.clear()
 	control.throttle = hover_throttle()
+	control.aim_point = weapons.forward_aim_point()
 
 
 func set_spawn_transform(t: Transform3D) -> void:

@@ -5,7 +5,7 @@ actually implemented and — more importantly — the design questions that are
 still open, several of which need answering before networking goes in.
 
 Files: `heli_weapons.gd`, `heli_projectile.gd`, `heli_explosion.gd`,
-`scenes/projectile.tscn`, `scenes/explosion.tscn`.
+`heli_input.gd`, `scenes/projectile.tscn`, `scenes/explosion.tscn`.
 
 ---
 
@@ -20,9 +20,10 @@ and clamped to the viewport with a margin. The HUD draws it as a crosshair.
 Note that the same mouse motion also drives the cyclic. Moving the mouse aims
 *and* flies simultaneously; they are not modal.
 
-`current_aim_point()` projects that 2D cursor through the active camera to a
-point `aim_distance` (2000 m) away in the world. It is re-projected every
-physics frame, not sampled once at launch.
+The locally-owned helicopter projects that cursor through its active camera to
+a point `aim_distance` (2000 m) away, then stores the world point in
+`HeliInput`. It is re-projected every physics frame, not sampled once at launch,
+and remote weapon simulation consumes the transmitted point without a camera.
 
 ### Firing
 
@@ -121,49 +122,24 @@ design for now. The trap is treating that as licence to resolve hits on the
 firing client because it looks identical at 0 ms; it will not look identical
 later, and authority is the expensive thing to move.
 
-### 3. Aim is camera-dependent, and this breaks the moment there are two players
+### 3. Aim travels as a resolved 3D world point
 
-`current_aim_point()` calls `get_viewport().get_camera_3d()` — the *active*
-camera, meaning the local player's. That is a single global, but it is being
-used to answer a per-helicopter question.
+The owning player resolves its 2D cursor through its active camera and writes
+the resulting world-space point into `HeliInput`. That point travels in the same
+unreliable ordered packet as pitch, roll, yaw, and throttle. The next packet
+self-heals a dropped guidance update just as it does a dropped flight input.
 
-Nothing misbehaves today, for two reasons that both disappear under networking:
-`helicopter.gd` sets `_camera.current` only on the locally-owned aircraft, and
-`HeliWeapons._unhandled_input()` gates firing on `is_local_authority()`. So the
-target helicopter never fires and there is only ever one active camera.
+`HeliWeapons.current_aim_point()` now reads `control.aim_point`, so a remote
+helicopter's weapon never consults the local player's camera. This deliberately
+chooses the 3D point over transmitting the 2D cursor: it costs three floats but
+is self-contained, is meaningful without the sender's camera, and is exactly
+the value projectile guidance needs.
 
-Once a second real player exists, a remote helicopter's projectiles must still
-be steered on this machine — and `current_aim_point()` will hand them **the
-local player's crosshair**. Every remote missile in the world would fly at
-whatever you personally are looking at. This is not a rendering nicety; it is a
-trajectory error, and it needs fixing before networking rather than after.
-
-**Recommended shape of the fix: the aim point is pilot input.**
-
-`HeliInput` already exists to carry pilot intent from whoever owns an aircraft,
-already travels as absolute positions, and is already sized to send every
-physics tick. The aim cursor is exactly that kind of value. Extending it means:
-
-- `current_aim_point()` reads from `control` rather than from the viewport, so
-  it resolves identically for local and remote aircraft, with or without a
-  camera
-- no separate channel, no separate reliability story, no extra RPC
-- guidance updates arrive at the same rate and in the same order as the flight
-  inputs they are correlated with
-
-The open sub-question is *what* to put in `HeliInput`: the 2D screen cursor
-(compact, but only meaningful alongside the sender's camera, which the receiver
-does not have) or the resolved 3D world point (larger, self-contained, and what
-the projectile actually wants). The world point is the stronger default —
-resolve on the owner, transmit the answer. See registry row 4.
-
-Note also that `HeliProjectile._refresh_guidance_target()` holds a reference to
-its `_guidance_source` and re-queries it every frame, so a projectile's
-behaviour is coupled to its launcher's lifetime. It uses `is_instance_valid()`,
-so a destroyed launcher leaves the projectile flying at its last known target
-rather than crashing — but that is the current behaviour by accident rather than
-by design. Routing guidance through `HeliInput` removes this coupling as a side
-effect, since the projectile would read a value rather than call an object.
+`HeliProjectile._refresh_guidance_target()` still holds a reference to its
+`_guidance_source` and re-queries it every frame, so a projectile's behaviour
+remains coupled to its launcher's lifetime. Removing that object reference
+belongs with authoritative projectile spawning, where the server can give each
+projectile an explicit owner and guidance value.
 
 ### 4. Projectiles parent themselves to the current scene
 

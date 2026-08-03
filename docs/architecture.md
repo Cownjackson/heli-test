@@ -168,8 +168,10 @@ Two consequences that already follow from this rule:
 
 ### 2. Pilot intent travels as absolute positions, never deltas
 
-`HeliInput` is four floats: `pitch`, `roll`, `yaw`, `throttle`. Note that
-`throttle` is the **lever position** (0..1), not an up/down rate.
+`HeliInput` carries `pitch`, `roll`, `yaw`, `throttle`, and a resolved 3D weapon
+aim point. Note that `throttle` is the **lever position** (0..1), not an up/down
+rate, and the aim point is an absolute world-space position rather than a mouse
+delta or a camera-relative cursor.
 
 This is a networking decision, not an ergonomic one. Absolute positions are
 self-healing: a dropped packet costs you one frame of staleness. If we sent
@@ -178,6 +180,12 @@ disagreeing about how much power is in — an error that never washes out.
 
 It happens to also be more helicopter-correct, since a real collective is a
 lever you park rather than a rate you hold.
+
+The owning player alone resolves its 2D cursor through its active camera. That
+world point travels with the other input values, so the server can guide a
+remote player's projectiles without having that player's camera. Anything that
+simulates weapons remotely must consume `control.aim_point`; it must not query
+the local viewport.
 
 ### 3. `is_local_authority()` is the only authority gate
 
@@ -228,7 +236,8 @@ Two traffic directions, both **unreliable**, and for the same reason: every
 message carries absolute state, never a delta, so a dropped packet costs one
 frame of staleness and the next one heals it completely.
 
-- **Client → server**, `_receive_input`: the four `HeliInput` floats. The server
+- **Client → server**, `_receive_input`: the flight controls and 3D aim point
+  serialized by `HeliInput`. The server
   checks `get_remote_sender_id() == peer_id` before accepting. That check is
   load-bearing, not ceremony — without it any peer could fly any aircraft.
 - **Server → clients**, `_receive_state`: position, rotation, velocity, throttle

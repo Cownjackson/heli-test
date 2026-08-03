@@ -73,10 +73,6 @@ func try_fire() -> bool:
 	if ammo <= 0 or cooldown_remaining > 0.0 or projectile_scene == null:
 		return false
 
-	var camera := get_viewport().get_camera_3d()
-	if camera == null:
-		return false
-
 	var aim_point := current_aim_point()
 
 	var projectile_parent: Node = get_tree().current_scene
@@ -86,7 +82,7 @@ func try_fire() -> bool:
 		var projectile = projectile_scene.instantiate()
 		projectile_parent.add_child(projectile)
 		projectile.global_position = muzzle.global_position
-		projectile.launch_guided(aim_point, self, _heli, _heli.linear_velocity)
+		projectile.launch_guided(aim_point, self, _heli, _heli.current_velocity())
 
 	ammo -= 1
 	cooldown_remaining = fire_cooldown
@@ -113,13 +109,25 @@ func get_projectile_time_scale() -> float:
 	return projectile_time_scale
 
 
-## Reprojects the live virtual cursor every physics frame for guided missiles.
-func current_aim_point() -> Vector3:
+## The only camera-dependent part of aiming. Called solely by the locally-owned
+## helicopter, which stores the result in HeliInput for local and remote weapon
+## simulation alike.
+func resolve_local_aim_point() -> Vector3:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
-		return global_position - global_basis.z * aim_distance
+		return forward_aim_point()
 	var ray_origin := camera.project_ray_origin(aim_position)
 	return ray_origin + camera.project_ray_normal(aim_position) * aim_distance
+
+
+## Camera-independent guidance value. Remote weapons and projectiles must use
+## this path rather than consulting their local viewport.
+func current_aim_point() -> Vector3:
+	return _heli.control.aim_point if _heli != null else forward_aim_point()
+
+
+func forward_aim_point() -> Vector3:
+	return global_position - global_basis.z * aim_distance
 
 
 func _clamp_aim_position() -> void:
