@@ -36,7 +36,9 @@ func _draw() -> void:
 
 	var font_size := 15
 	var color := Color(0.85, 0.95, 0.85)
-	var velocity := _heli.linear_velocity
+	# Not linear_velocity: a replicated aircraft is frozen, so on a client that
+	# reads zero even for the helicopter you are flying.
+	var velocity := _heli.current_velocity()
 	var horizontal := Vector2(velocity.x, velocity.z).length()
 	var euler := _heli.global_basis.get_euler(EULER_ORDER_YXZ)
 

@@ -46,9 +46,11 @@ Two things surprise new pilots, both deliberate:
 
 ## Multiplayer (LAN, in progress)
 
-Two peers can connect and see each other's helicopters spawn and despawn.
-**Remote aircraft do not move yet** — input and state replication are the next
-step, so a remote helicopter currently sits at its spawn point.
+Two peers can fly together. The host simulates every aircraft; clients send
+input and render replicated state. There is no prediction — your own helicopter
+answers one round trip late, which is imperceptible on a LAN and is why no
+reconciliation is needed. Weapons are **not** replicated yet: projectiles are
+local to whoever fired them.
 
 Press `F4` for the session panel. The host presses **Host**; the panel then lists
 that machine's own addresses and marks which is likely the right one, so there is

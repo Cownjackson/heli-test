@@ -214,6 +214,45 @@ Ownership must also be assigned **before** the node enters the tree.
 `Helicopter._ready()` reads `peer_id` to enable its input source and to decide
 which camera becomes `current`, and neither is cleanly reversible afterwards.
 
+### Replication
+
+Server-authoritative, as option A requires. The host simulates **every**
+helicopter; clients simulate **none** — not even their own. A client's aircraft
+is frozen and interpolated exactly like everyone else's.
+
+That is the deliberate cost of skipping prediction: your own helicopter answers
+one round trip late. On a switch that is well under a millisecond and is the
+whole reason we do not need reconciliation yet.
+
+Two traffic directions, both **unreliable**, and for the same reason: every
+message carries absolute state, never a delta, so a dropped packet costs one
+frame of staleness and the next one heals it completely.
+
+- **Client → server**, `_receive_input`: the four `HeliInput` floats. The server
+  checks `get_remote_sender_id() == peer_id` before accepting. That check is
+  load-bearing, not ceremony — without it any peer could fly any aircraft.
+- **Server → clients**, `_receive_state`: position, rotation, velocity, throttle
+  and crashed flag.
+
+Throttle rides along so a client's HUD lever and rotor spin stay honest. It is
+*not* applied to the local player's own aircraft, so their gauge still responds
+to their own input immediately rather than a round trip later.
+
+Interpolation dead-reckons position by the last known velocity between packets,
+then converges at `interpolation_rate`. Without the dead reckoning, motion
+arrives in visible steps at the packet rate. Disagreements beyond
+`teleport_distance` snap instead, so a respawn is not rendered as a glide across
+the map.
+
+Two consequences worth knowing:
+
+- **Input is polled in `_physics_process()`, not `_integrate_forces()`.** A
+  frozen body never runs `_integrate_forces`, so a client would otherwise poll
+  no input at all and have nothing to send.
+- **`linear_velocity` is meaningless on a client.** Presentation code must call
+  `current_velocity()`, which returns the replicated velocity when the body is
+  frozen. The HUD and the chase camera both do.
+
 ### 5. Remote helicopters must not simulate locally
 
 When networking goes in, remote aircraft need `freeze = true` and pure
