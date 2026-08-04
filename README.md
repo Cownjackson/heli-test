@@ -35,6 +35,7 @@ godot --headless --path <project-dir> --import
 | `F1` / `F2` / `F3` | Host / join / leave a LAN session |
 | `F4` | Open the session panel (type an address, see your own) |
 | `F5` | Show/hide the combat tuning sliders (host only) |
+| `F6` | Toggle the edge-yaw camera prototype (off by default, local only) |
 
 Two things surprise new pilots, both deliberate:
 

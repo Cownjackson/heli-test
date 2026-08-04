@@ -138,17 +138,45 @@ airframe's heading, so a pilot can only look where the nose points.** Finding
 another helicopter means flying a search pattern rather than looking around, and
 at some attitudes the airframe sits between the camera and the target.
 
+### The edge-yaw prototype
+
 The idea in front is to let the aim cursor **yaw the camera when it pushes
 toward the screen edge**, rather than clamping dead against it. That turns the
 edge from a wall into a look-around control, and it removes the same clamp that
-open question 9 is caused by, so one mechanism answers both. An over-the-
-shoulder offset on the spring arm while the aim lock is held would handle the
-airframe blocking the shot without new machinery — the arm already excludes the
-airframe's own collider.
+open question 9 is caused by, so one mechanism answers both.
 
-Neither is decided. Do not implement either half without closing the questions,
-because the cursor, the camera and the virtual cyclic are one control loop and
-changing any one of them alone moves the problem rather than fixing it.
+**This is implemented, and it is off by default.** `ChaseCamera.edge_yaw_enabled`
+gates it; `F6` toggles it on the aircraft you are flying, and the HUD's last line
+shows which state you are in. The toggle is local and unreplicated, so in a
+two-player session each pilot evaluates it independently.
+
+| Knob | Default | What it does |
+|---|---|---|
+| `edge_yaw_deadzone` | 0.72 | Fraction of the half-width before the cursor starts pushing |
+| `edge_yaw_rate` | 1.7 rad/s | Swing at full push — measured at 97° in one second, which is the first thing to turn down if it feels frantic |
+| `edge_yaw_limit_deg` | 100° | How far off the nose the camera may be dragged |
+| `edge_yaw_return` | 1.1 rad/s | Return to the nose once the cursor leaves the band. **0 makes the offset persist**, which is the other candidate feel |
+
+`HeliWeapons.aim_edge_push()` normalises against the *reachable* edge rather
+than the raw half-width, because `aim_cursor_margin` otherwise makes full
+deflection unattainable and the camera silently tops out below `edge_yaw_rate`.
+
+**What to judge while flying it is not whether looking around works** — it does.
+It is what happens to the cyclic. The stick tilts relative to the *aircraft's*
+heading, not the camera's, so once the camera is yawed off the nose, pushing the
+stick forward no longer moves you up the screen. That is the standard
+third-person-shooter versus vehicle-camera tension, and it is the whole reason
+this sits behind a flag. If it turns out to be intolerable, the fallback is to
+allow edge-yaw only while the aim lock is held, so the camera is only ever
+detached from the nose during a deliberate aiming moment.
+
+Still unbuilt: an over-the-shoulder offset on the spring arm while the aim lock
+is held, for the airframe blocking the shot. The arm already excludes the
+airframe's own collider, so that is a lateral offset rather than new machinery.
+
+Do not wire the cursor fix (question 9) to this until the camera half is
+decided. The cursor, the camera and the virtual cyclic are one control loop, and
+changing one alone moves the problem rather than fixing it.
 
 ---
 

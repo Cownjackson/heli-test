@@ -213,9 +213,28 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_F5:
 			# The combat sliders are large and only useful while tuning.
 			_developer_settings.visible = not _developer_settings.visible
+		KEY_F6:
+			# Prototype A/B (open question 10). A keybind rather than a slider
+			# because the only useful way to judge it is to flip it mid-flight
+			# and fly the same manoeuvre twice.
+			_toggle_edge_yaw()
 		_:
 			return
 	get_viewport().set_input_as_handled()
+
+
+## Flips the edge-yaw camera prototype on the aircraft this machine is flying.
+## Deliberately local and unreplicated: it changes nothing but this player's own
+## camera, so the other pilot is unaffected and both can evaluate independently.
+func _toggle_edge_yaw() -> void:
+	var heli := _local_heli()
+	if heli == null:
+		return
+	var rig := heli.get_node_or_null(^"CameraRig")
+	if rig == null:
+		return
+	rig.edge_yaw_enabled = not rig.edge_yaw_enabled
+	print("edge-yaw camera: ", "ON" if rig.edge_yaw_enabled else "OFF")
 
 
 ## Called by the connect panel. Flying needs the mouse captured; typing an

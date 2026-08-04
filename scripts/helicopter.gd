@@ -150,6 +150,7 @@ const GROUP := &"helicopters"
 @onready var weapons = $Weapons
 @onready var _main_rotor: Node3D = $Model/MainRotor
 @onready var _tail_rotor: Node3D = $Model/TailRotor
+@onready var _camera_rig: Node3D = $CameraRig
 @onready var _camera: Camera3D = $CameraRig/SpringArm3D/Camera3D
 
 ## Current pilot intent. Overwritten each tick by whoever has authority.
@@ -709,6 +710,7 @@ func reset() -> void:
 	_rotor_spin = 1.0
 	input_source.center_stick()
 	weapons.center_aim()
+	_camera_rig.recenter()
 	input_source.set_throttle(hover_throttle())
 	control.clear()
 	control.throttle = hover_throttle()

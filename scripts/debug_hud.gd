@@ -74,6 +74,7 @@ func _draw() -> void:
 		"LMB twin guns   Alt/RMB aim lock",
 		"R reset   Esc release mouse",
 		"F1 host  F2 join  F3 leave  F5 tuning",
+		"F6 edge-yaw camera  [%s]" % ("ON" if _edge_yaw_on() else "off"),
 	])
 	var y := MARGIN + font_size
 	for line: String in lines:
@@ -123,6 +124,15 @@ func _draw_no_aircraft(font: Font) -> void:
 
 ## Every live helicopter except the one being flown, in a stable order so the
 ## readout doesn't reshuffle between frames.
+## A held mode with no tell is indistinguishable from a bug, and this one is a
+## prototype that gets flipped mid-flight on purpose.
+func _edge_yaw_on() -> bool:
+	if _heli == null:
+		return false
+	var rig := _heli.get_node_or_null(^"CameraRig")
+	return rig != null and rig.edge_yaw_enabled
+
+
 func _other_helicopters() -> Array[Helicopter]:
 	var others: Array[Helicopter] = []
 	for node in get_tree().get_nodes_in_group(Helicopter.GROUP):

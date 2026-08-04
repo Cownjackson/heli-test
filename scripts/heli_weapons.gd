@@ -246,6 +246,25 @@ func forward_aim_point() -> Vector3:
 	return global_position - global_basis.z * aim_distance
 
 
+## How hard the cursor is pushing into the horizontal edge band: 0 anywhere in
+## the middle of the screen, ±1 when it is held against the clamp. Prototype
+## support for the edge-yaw camera (see `chase_camera.gd`), and the only reason
+## this class exposes its cursor as anything other than a pixel position.
+##
+## Normalised against the *reachable* edge rather than the raw half-width, so
+## holding the cursor at the clamp really does return 1.0 — `aim_cursor_margin`
+## otherwise makes full deflection unreachable and the camera tops out slow.
+func aim_edge_push(deadzone: float) -> float:
+	var rect := get_viewport().get_visible_rect()
+	var half := rect.size.x * 0.5
+	if half <= 0.0:
+		return 0.0
+	var reachable := maxf((half - aim_cursor_margin) / half, 0.001)
+	var offset := clampf((aim_position.x - (rect.position.x + half)) / half / reachable, -1.0, 1.0)
+	var zone := clampf(deadzone, 0.0, 0.95)
+	return signf(offset) * clampf((absf(offset) - zone) / (1.0 - zone), 0.0, 1.0)
+
+
 func _clamp_aim_position() -> void:
 	var rect := get_viewport().get_visible_rect()
 	var minimum := rect.position + Vector2.ONE * aim_cursor_margin
