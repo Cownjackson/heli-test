@@ -36,6 +36,39 @@ centre while the lock is held, which levels the aircraft and settles the camera
 at the cost of losing the manoeuvre you were in. Which of those is right is a
 feel question, not a correctness one.
 
+#### The crosshair and the stick disagree
+
+**Known defect, tracked as [open question 9](open-questions.md).** The crosshair
+drifts off centre during ordinary flying, so a centred stick no longer looks
+like a centred stick — which makes levelling out after a sharp turn read wrong.
+
+The cause is that `LocalInputSource.stick` and `HeliWeapons.aim_position` are
+**two independent integrators over the same `event.relative`**, with different
+scales and different clamp *shapes*:
+
+| | `stick` | `aim_position` |
+|---|---|---|
+| Scale | `mouse_sensitivity` 0.0022 | `aim_cursor_sensitivity` 1.15 |
+| Clamp | unit **disc** (`limit_length`) | viewport **rectangle** |
+| Full deflection, X | 455 px of mouse | 675 px |
+| Full deflection, Y | 455 px | 370 px |
+
+On the 1600×900 viewport they therefore saturate at different times and in
+opposite senses. Horizontally the stick maxes out first and the cursor keeps
+travelling, so dragging right and then back 455 px leaves the stick centred and
+the crosshair ~250 px right of centre. Vertically it inverts — the cursor hits
+the wall first. Diagonally they disagree without saturating at all, because one
+clamps to a disc and the other to a rectangle. None of this is drift; it is
+clipping, and it is fully reproducible.
+
+The fix direction is to **stop integrating twice** and derive the cursor from
+the stick. What is *not* decided is how the aim lock reconverges: while the lock
+is held the two must diverge, since that is the entire feature. Candidates are a
+lock offset that decays back to the stick over ~0.5 s on release, one that
+persists until `R`, or a snap. See also open question 10 — if the screen edge
+becomes a camera-yaw control rather than a wall, the clamp behind this defect
+stops existing.
+
 The locally-owned helicopter projects that cursor through its active camera to
 a point `aim_distance` (2000 m) away, then stores the world point in
 `HeliInput`. It is re-projected every physics frame, not sampled once at launch,

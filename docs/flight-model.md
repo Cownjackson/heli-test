@@ -108,6 +108,9 @@ shaping, which is on its child `InputSource`.
 | Snaps to attitude too aggressively | `attitude_p` | Down, and track `attitude_d ≈ 2·√p` |
 | Wallowy, overshoots and oscillates | `attitude_d` | Up |
 | Too slow / too fast overall | `max_thrust_ratio` | Sets climb, fall and hover together |
+| Sluggish everywhere, but the big angles are still right | `cyclic_expo` | Down — 0.75 gives ~26% tilt at half stick |
+| Rotor feels underpowered, lever has no authority | `max_thrust_ratio` | Up — 2.2 puts hover at 45% and climb at 1.2 g |
+| Lever itself responds too slowly | `throttle_rate` (InputSource) | Up — 0.75/s is ~1.3 s end to end |
 | Can't catch a sink in time | `throttle_rate` (InputSource) | Up — see the sink table below |
 | Top speed wrong | `drag_forward` | Top speed ≈ `tan(max_pitch)·g / drag_forward` |
 | Sideways flight feels free | `drag_side` | Up |
@@ -120,6 +123,32 @@ shaping, which is on its child `InputSource`.
 nose-down attitude puts a large slice of cruise velocity onto the body's
 vertical axis, which reads as speed-proportional anti-lift and makes climb rate
 impossible to tune.
+
+---
+
+## The camera is part of the flight model
+
+`chase_camera.gd` runs top-level so the airframe's roll and pitch never reach
+the camera; it tracks position and `level_heading()` only. That is what keeps a
+tilt-to-move aircraft readable, and it should not change.
+
+What follows from it is a real limitation, tracked as
+[open question 10](open-questions.md): **the camera heading is welded to the
+airframe's heading, so a pilot can only look where the nose points.** Finding
+another helicopter means flying a search pattern rather than looking around, and
+at some attitudes the airframe sits between the camera and the target.
+
+The idea in front is to let the aim cursor **yaw the camera when it pushes
+toward the screen edge**, rather than clamping dead against it. That turns the
+edge from a wall into a look-around control, and it removes the same clamp that
+open question 9 is caused by, so one mechanism answers both. An over-the-
+shoulder offset on the spring arm while the aim lock is held would handle the
+airframe blocking the shot without new machinery — the arm already excludes the
+airframe's own collider.
+
+Neither is decided. Do not implement either half without closing the questions,
+because the cursor, the camera and the virtual cyclic are one control loop and
+changing any one of them alone moves the problem rather than fixing it.
 
 ---
 
